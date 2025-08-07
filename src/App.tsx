@@ -8,9 +8,7 @@ import { Settings } from '@/pages/Settings';
 import { Analytics } from '@/pages/Analytics';
 import { Badges } from '@/pages/Badges';
 import { TestWhatsApp } from '@/pages/TestWhatsApp';
-import { DiagnosticTest } from '@/pages/DiagnosticTest';
 import { CreateTestUser } from '@/pages/CreateTestUser';
-import { MockWhatsAppTest } from '@/pages/MockWhatsAppTest';
 import { AuthForm } from '@/components/auth/AuthForm';
 import { WelcomeSplash } from '@/components/WelcomeSplash';
 import { useAuth } from '@/hooks/useAuth';
@@ -85,9 +83,7 @@ function AppContent() {
         <Route path="analytics" element={<Analytics />} />
         <Route path="badges" element={<Badges />} />
         <Route path="test-whatsapp" element={<TestWhatsApp />} />
-        <Route path="diagnostic" element={<DiagnosticTest />} />
         <Route path="create-test-user" element={<CreateTestUser />} />
-        <Route path="mock-whatsapp" element={<MockWhatsAppTest />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

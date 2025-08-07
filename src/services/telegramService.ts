@@ -142,7 +142,7 @@ class TelegramService {
       if (error) throw error;
 
       // Group by date and find overlapping slots
-      const availabilityByDate: Record<string, any[]> = {};
+      const availabilityByDate: Record<string, Array<{day: string, start_time: number, end_time: number, date: string}>> = {};
       availabilities?.forEach(slot => {
         const dateKey = slot.date;
         if (!availabilityByDate[dateKey]) {
@@ -151,8 +151,8 @@ class TelegramService {
         availabilityByDate[dateKey].push(slot);
       });
 
-      const commonSlots: any[] = [];
-      const suggestedSessions: any[] = [];
+      const commonSlots: Array<{date: Date, startTime: number, endTime: number, duration: number}> = [];
+      const suggestedSessions: Array<{date: Date, startTime: number, endTime: number, dayName: string}> = [];
 
       // Find overlapping time slots for each date
       Object.entries(availabilityByDate).forEach(([dateStr, slots]) => {
@@ -200,7 +200,7 @@ class TelegramService {
   }
 
   // Helper function to find time overlaps (simplified)
-  private findTimeOverlaps(slots: any[]): Array<{ start: number; end: number }> {
+  private findTimeOverlaps(slots: Array<{day: string, start_time: number, end_time: number}>): Array<{ start: number; end: number }> {
     // This is a simplified version - you might want to implement more sophisticated logic
     const overlaps: Array<{ start: number; end: number }> = [];
     

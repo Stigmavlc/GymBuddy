@@ -20,7 +20,7 @@ export function DiagnosticTest() {
       output += `Profile exists: ${profile ? 'Yes' : 'No'}\n`;
       if (profile) {
         output += `Profile Name: ${profile.name}\n`;
-        output += `Profile Phone: ${profile.phone_number || 'Not set'}\n`;
+        output += `Profile Phone: ${(profile as any).phone_number || 'Not set'}\n`;
       }
 
       // Step 2: Check users table

@@ -34,7 +34,7 @@ export function CreateTestUser() {
       output += '📝 Step 1: Creating Youssef user profile...\n';
       
       // Try to insert user (this might fail due to RLS, that's OK)
-      const { data: userData, error: userError } = await supabase
+      const { error: userError } = await supabase
         .from('users')
         .insert([youssefUser])
         .select();
