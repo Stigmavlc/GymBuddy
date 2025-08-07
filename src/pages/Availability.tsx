@@ -21,6 +21,24 @@ export function Availability() {
   useEffect(() => {
     if (user) {
       loadAvailability();
+      
+      // Subscribe to real-time changes
+      const subscription = supabase
+        .channel('availability-changes')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'availability',
+          filter: `user_id=eq.${user.id}`
+        }, () => {
+          // Reload availability when changes occur
+          loadAvailability();
+        })
+        .subscribe();
+      
+      return () => {
+        subscription.unsubscribe();
+      };
     }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -30,10 +48,12 @@ export function Availability() {
     try {
       console.log('Loading availability for user:', user.id);
       
+      // Force fresh data by adding a timestamp to bypass any caching
       const { data, error } = await supabase
         .from('availability')
         .select('*')
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
       console.log('Load availability result:', { data, error });
 

@@ -52,7 +52,12 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     }
   }, [currentWeekOffset, initialAvailability]);
 
-  const handleMouseDown = (day: string, slotIndex: number) => {
+  const handleMouseDown = (day: string, slotIndex: number, e?: React.MouseEvent | React.TouchEvent) => {
+    // Prevent default touch behavior to avoid delays
+    if (e && 'touches' in e) {
+      e.preventDefault();
+    }
+    
     setIsSelecting(true);
     setIsDirty(true);
     const dayKey = day.toLowerCase();
@@ -231,13 +236,16 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                       <button
                         key={`${day}-${hour}`}
                         className={cn(
-                          "p-2 text-xs rounded border transition-all select-none touch-manipulation",
+                          "p-2 text-xs rounded border transition-all select-none",
                           isSelected 
                             ? "bg-primary border-primary text-primary-foreground font-medium" 
                             : "bg-background border-border hover:bg-muted active:bg-muted"
                         )}
-                        onMouseDown={() => handleMouseDown(day, hour)}
-                        onTouchStart={() => handleMouseDown(day, hour)}
+                        style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleMouseDown(day, hour, e);
+                        }}
                       >
                         {formatTime(hour)}
                       </button>
@@ -287,7 +295,8 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                                   ? "bg-primary border-primary text-primary-foreground" 
                                   : "bg-background border-border hover:bg-muted"
                               )}
-                              onMouseDown={() => handleMouseDown(day, hour)}
+                              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+                              onMouseDown={(e) => handleMouseDown(day, hour, e)}
                               onMouseEnter={() => handleMouseEnter(day, hour)}
                             />
                           );
