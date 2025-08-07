@@ -2,7 +2,7 @@
 // Automated notifications using Telegram Bot + n8n + Claude
 
 import { supabase } from '@/lib/supabase';
-import type { GymSession } from '@/types';
+// import type { GymSession } from '@/types';
 
 export interface TelegramNotification {
   chatId: string;

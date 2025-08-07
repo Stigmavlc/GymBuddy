@@ -13,7 +13,6 @@ export function Settings() {
   const navigate = useNavigate();
   
   const [loading, setLoading] = useState(false);
-  const [testingSMS, setTestingSMS] = useState(false);
   const [formData, setFormData] = useState({
     browserNotifications: true,
     emailNotifications: true,

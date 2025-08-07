@@ -268,9 +268,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                     </div>
                   ))}
                   
-                  {DAYS.map((day, dayIndex) => {
-                    const weekDates = getWeekDates();
-                    const dayDate = weekDates[dayIndex];
+                  {DAYS.map((day) => {
                     
                     return (
                       <React.Fragment key={day}>
