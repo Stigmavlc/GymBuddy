@@ -1,0 +1,332 @@
+{
+  "name": "GymBuddy Telegram Coordination",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gymbuddy",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.event }}",
+              "operation": "equal",
+              "value2": "message_received"
+            }
+          ]
+        }
+      },
+      "id": "check-message-event",
+      "name": "Check Message Event",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [300, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract user and message data from Telegram webhook\nconst telegramData = $input.first().json;\n\n// Format user data\nconst user = {\n  id: telegramData.user.id,\n  name: telegramData.user.first_name + (telegramData.user.last_name ? ' ' + telegramData.user.last_name : ''),\n  username: telegramData.user.username || null,\n  platform: 'telegram'\n};\n\n// Extract message\nconst message = telegramData.message;\n\n// Determine user type (Ivan or Youssef based on user ID or username)\nlet userType = 'unknown';\nif (telegramData.user.first_name?.toLowerCase().includes('ivan') || \n    telegramData.user.username?.toLowerCase().includes('ivan')) {\n  userType = 'ivan';\n} else if (telegramData.user.first_name?.toLowerCase().includes('youssef') || \n           telegramData.user.username?.toLowerCase().includes('youssef')) {\n  userType = 'youssef';\n}\n\nreturn {\n  user: user,\n  message: message,\n  userType: userType,\n  timestamp: telegramData.timestamp,\n  chatId: telegramData.user.id,\n  rawData: telegramData\n};"
+      },
+      "id": "process-telegram-data",
+      "name": "Process Telegram Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "prompt": "You are GymBuddy Coordinator, an AI assistant that helps Ivan and Youssef coordinate their gym schedules.\n\nCurrent context:\n- User: {{ $json.user.name }} ({{ $json.userType }})\n- Message: {{ $json.message }}\n- Platform: Telegram\n- Time: {{ $json.timestamp }}\n\nYour role:\n1. Help coordinate gym sessions between Ivan and Youssef\n2. Understand their availability and preferences\n3. Suggest optimal workout times\n4. Handle schedule conflicts diplomatically\n5. Keep both users informed of schedule changes\n6. Be encouraging and supportive about fitness goals\n\nGuidelines:\n- Be concise but friendly\n- Use emojis appropriately 🏋️💪📅\n- Always consider both users' schedules\n- Suggest specific days/times when possible\n- Ask clarifying questions if needed\n- Confirm final arrangements clearly\n\nRespond to the user's message about gym scheduling. If this involves coordinating with the other person, mention that you'll check with them too.",
+        "options": {
+          "maxTokens": 500,
+          "temperature": 0.7
+        }
+      },
+      "id": "claude-coordination",
+      "name": "Claude AI Coordination",
+      "type": "n8n-nodes-base.anthropicClaude",
+      "typeVersion": 1,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_BOT_URL }}/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "message",
+              "value": "🤖 {{ $('Claude AI Coordination').item.json.response }}"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-telegram-response",
+      "name": "Send Telegram Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.userType }}",
+              "operation": "equal",
+              "value2": "ivan"
+            }
+          ]
+        }
+      },
+      "id": "check-if-ivan",
+      "name": "Check if Ivan",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_BOT_URL }}/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.YOUSSEF_TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "message",
+              "value": "📢 <b>Schedule Update from Ivan:</b>\\n\\n{{ $json.message }}\\n\\n<i>Reply with your availability or any conflicts!</i>"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify-youssef",
+      "name": "Notify Youssef",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 350]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.TELEGRAM_BOT_URL }}/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.IVAN_TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "message",
+              "value": "📢 <b>Schedule Update from Youssef:</b>\\n\\n{{ $json.message }}\\n\\n<i>Reply with your availability or any conflicts!</i>"
+            },
+            {
+              "name": "parse_mode",
+              "value": "HTML"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "notify-ivan",
+      "name": "Notify Ivan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log the interaction for debugging\nconsole.log('GymBuddy Telegram Coordination:', {\n  user: $json.user,\n  message: $json.message,\n  timestamp: $json.timestamp\n});\n\nreturn {\n  success: true,\n  processed_at: new Date().toISOString(),\n  user_id: $json.user.id,\n  message_length: $json.message.length\n};"
+      },
+      "id": "log-interaction",
+      "name": "Log Interaction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"Message processed successfully\", \"timestamp\": new Date().toISOString() } }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1300, 200]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Message Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Message Event": {
+      "main": [
+        [
+          {
+            "node": "Process Telegram Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Telegram Data": {
+      "main": [
+        [
+          {
+            "node": "Claude AI Coordination",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check if Ivan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI Coordination": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Response": {
+      "main": [
+        [
+          {
+            "node": "Log Interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Ivan": {
+      "main": [
+        [
+          {
+            "node": "Notify Youssef",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Ivan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Youssef": {
+      "main": [
+        [
+          {
+            "node": "Log Interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Ivan": {
+      "main": [
+        [
+          {
+            "node": "Log Interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Interaction": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-07-30T08:00:00.000Z",
+  "versionId": "telegram-v1"
+}

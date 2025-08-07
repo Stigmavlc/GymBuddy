@@ -1,0 +1,18 @@
+{
+  "name": "gymbuddy-n8n",
+  "version": "1.0.0",
+  "description": "n8n automation for GymBuddy",
+  "main": "index.js",
+  "scripts": {
+    "start": "n8n start",
+    "build": "echo 'No build needed'",
+    "postinstall": "echo 'n8n installed'"
+  },
+  "dependencies": {
+    "n8n": "^1.60.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=6.0.0"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "update_id": 999997,
+  "message": {
+    "message_id": 1002,
+    "from": {
+      "id": 1195143765,
+      "is_bot": false,
+      "first_name": "Ivan",
+      "username": "Object_Oriented_Guy",
+      "language_code": "es"
+    },
+    "chat": {
+      "id": 1195143765,
+      "first_name": "Ivan",
+      "username": "Object_Oriented_Guy",
+      "type": "private"
+    },
+    "date": 1754271000,
+    "text": "Final test - reply if you can see this!"
+  }
+}
