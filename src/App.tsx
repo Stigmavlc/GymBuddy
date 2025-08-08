@@ -20,13 +20,10 @@ function AppContent() {
   const { user, loading, error } = useAuth();
   const [showSplash, setShowSplash] = useState(false);
 
-  // Show splash when user becomes authenticated and we haven't shown it this session
+  // Show splash when user becomes authenticated - every time they log in
   useEffect(() => {
     if (user && !loading) {
-      const hasShownSplash = sessionStorage.getItem('gymbuddy_splash_shown');
-      if (!hasShownSplash) {
-        setShowSplash(true);
-      }
+      setShowSplash(true);
     }
   }, [user, loading]);
 
@@ -74,7 +71,6 @@ function AppContent() {
       <WelcomeSplash 
         onComplete={() => {
           setShowSplash(false);
-          sessionStorage.setItem('gymbuddy_splash_shown', 'true');
         }} 
       />
     );

@@ -43,7 +43,7 @@ export function BadgeGrid({ badges, title, showProgress = true, maxDisplay }: Ba
       )}
 
       {maxDisplay ? (
-        // Simple grid view for dashboard
+        // Simple grid view for dashboard - always show badges
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {displayBadges.map((badge) => (
             <BadgeCard 
