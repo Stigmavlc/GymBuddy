@@ -286,24 +286,12 @@ export function Dashboard() {
             <div className="flex justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
-          ) : badges.length > 0 ? (
+          ) : (
             <BadgeGrid 
               badges={badges} 
               maxDisplay={4}
               showProgress={true}
             />
-          ) : (
-            <div className="text-center py-8">
-              <Award className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground mb-4">
-                Complete gym sessions to start earning achievement badges!
-              </p>
-              <div className="text-sm text-muted-foreground">
-                <p>• Complete your first workout session</p>
-                <p>• Build a consistent workout streak</p>
-                <p>• Achieve milestone session counts</p>
-              </div>
-            </div>
           )}
         </CardContent>
       </Card>
