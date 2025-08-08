@@ -3,7 +3,7 @@ import { AvailabilityCalendar } from '@/components/calendar/AvailabilityCalendar
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { whatsappService } from '@/services/whatsappService';
@@ -16,6 +16,7 @@ export function Availability() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [initialAvailability, setInitialAvailability] = useState<AvailabilityData | undefined>();
 
   useEffect(() => {
@@ -30,9 +31,13 @@ export function Availability() {
           schema: 'public',
           table: 'availability',
           filter: `user_id=eq.${user.id}`
-        }, () => {
+        }, (payload) => {
+          console.log('Availability page: Change detected:', payload);
           // Reload availability when changes occur
           loadAvailability();
+          toast.info('Your availability has been updated', {
+            description: 'The changes are now reflected on the calendar'
+          });
         })
         .subscribe();
       
@@ -41,6 +46,13 @@ export function Availability() {
       };
     }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadAvailability();
+    toast.success('Availability refreshed');
+    setRefreshing(false);
+  };
 
   const loadAvailability = async () => {
     if (!user) return;
@@ -261,14 +273,25 @@ export function Availability() {
   return (
     <div className="space-y-6">
       <div className="mb-6">
-        <Button
-          variant="ghost"
-          onClick={() => navigate('/dashboard')}
-          className="mb-4"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Dashboard
-        </Button>
+        <div className="flex items-center justify-between mb-4">
+          <Button
+            variant="ghost"
+            onClick={() => navigate('/dashboard')}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Dashboard
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
         
         <h1 className="text-2xl sm:text-3xl font-bold">Set Your Availability</h1>
         <p className="text-muted-foreground mt-2">

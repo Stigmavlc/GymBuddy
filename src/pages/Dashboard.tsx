@@ -10,6 +10,7 @@ import { BadgeGrid } from '@/components/badges/BadgeGrid';
 import { BadgeUnlockModal } from '@/components/badges/BadgeUnlockModal';
 import { Calendar, Clock, Award } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 import type { GymSession } from '@/types';
 
 export function Dashboard() {
@@ -38,6 +39,35 @@ export function Dashboard() {
 
 
   // Load real session data
+  // Subscribe to real-time availability changes
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('Dashboard: Setting up real-time subscription for availability changes');
+    
+    const subscription = supabase
+      .channel('dashboard-availability-changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'availability'
+      }, (payload) => {
+        console.log('Dashboard: Availability change detected:', payload);
+        toast.info('Availability has been updated', {
+          description: 'Refresh to see the latest changes',
+          action: {
+            label: 'Refresh',
+            onClick: () => window.location.reload()
+          }
+        });
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -75,8 +105,12 @@ export function Dashboard() {
           toast.success(`🏆 New badge unlocked: ${badgeUnlocks[0].badge.name}!`);
         }
 
-        // Load user badges with progress - always load, even if empty
+        // Initialize badges if needed, then load user badges with progress
         try {
+          // First ensure badges are initialized in the database
+          await badgeService.initializeBadges();
+          
+          // Then load user badges with progress
           const userBadges = await badgeService.getBadgesWithProgress(user.id);
           console.log('Dashboard: Loaded badges:', userBadges?.length || 0);
           setBadges(userBadges || []);

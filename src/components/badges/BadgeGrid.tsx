@@ -43,17 +43,31 @@ export function BadgeGrid({ badges, title, showProgress = true, maxDisplay }: Ba
       )}
 
       {maxDisplay ? (
-        // Simple grid view for dashboard - always show badges
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {displayBadges.map((badge) => (
-            <BadgeCard 
-              key={badge.id} 
-              badge={badge} 
-              size="sm" 
-              showProgress={showProgress}
-            />
-          ))}
-        </div>
+        // Simple grid view for dashboard - always show badges or placeholder
+        displayBadges.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {displayBadges.map((badge) => (
+              <BadgeCard 
+                key={badge.id} 
+                badge={badge} 
+                size="sm" 
+                showProgress={showProgress}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="text-6xl mb-4">🏆</div>
+            <p className="text-lg font-medium text-muted-foreground mb-2">
+              Complete gym sessions to start earning achievement badges!
+            </p>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <p>• Complete your first workout session</p>
+              <p>• Build a consistent workout streak</p>
+              <p>• Achieve milestone session counts</p>
+            </div>
+          </div>
+        )
       ) : (
         // Categorized view for full badge page
         <div className="space-y-8">

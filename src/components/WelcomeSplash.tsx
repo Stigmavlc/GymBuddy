@@ -109,13 +109,13 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
 
   return (
     <div 
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/90 transition-opacity duration-500 ${
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-b from-gray-900 to-black transition-opacity duration-500 ${
         isVisible ? 'opacity-100' : 'opacity-0'
       }`}
     >
       <div className="max-w-4xl mx-auto px-8 text-center">
         <div className="animate-fade-in">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-8 leading-tight">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-8 leading-tight drop-shadow-lg">
             {message}
           </h1>
           
