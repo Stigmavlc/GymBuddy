@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
-import { Dashboard } from '@/pages/Dashboard';
-import { Availability } from '@/pages/Availability';
-import { Sessions } from '@/pages/Sessions';
-import { Settings } from '@/pages/Settings';
-import { Analytics } from '@/pages/Analytics';
-import { Badges } from '@/pages/Badges';
-import { TestWhatsApp } from '@/pages/TestWhatsApp';
-import { CreateTestUser } from '@/pages/CreateTestUser';
 import { AuthForm } from '@/components/auth/AuthForm';
 import { WelcomeSplash } from '@/components/WelcomeSplash';
 import { useAuth } from '@/hooks/useAuth';
 import { Toaster } from 'sonner';
+
+// Lazy load page components for better performance
+const Dashboard = lazy(() => import('@/pages/Dashboard').then(module => ({ default: module.Dashboard })));
+const Availability = lazy(() => import('@/pages/Availability').then(module => ({ default: module.Availability })));
+const Sessions = lazy(() => import('@/pages/Sessions').then(module => ({ default: module.Sessions })));
+const Settings = lazy(() => import('@/pages/Settings').then(module => ({ default: module.Settings })));
+const Analytics = lazy(() => import('@/pages/Analytics').then(module => ({ default: module.Analytics })));
+const Badges = lazy(() => import('@/pages/Badges').then(module => ({ default: module.Badges })));
+const TestWhatsApp = lazy(() => import('@/pages/TestWhatsApp').then(module => ({ default: module.TestWhatsApp })));
+const CreateTestUser = lazy(() => import('@/pages/CreateTestUser').then(module => ({ default: module.CreateTestUser })));
 
 function AppContent() {
   const { user, loading, error } = useAuth();
@@ -32,8 +34,14 @@ function AppContent() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Loading authentication...</p>
+          <div className="animate-spin rounded-full h-24 w-24 border-b-2 border-primary mx-auto"></div>
+          <div className="mt-4">
+            <h2 className="text-lg font-semibold text-foreground mb-2">GymBuddy</h2>
+            <p className="text-muted-foreground">Loading your workout companion...</p>
+            <div className="mt-2 text-xs text-muted-foreground">
+              Initializing app components
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -72,21 +80,33 @@ function AppContent() {
     );
   }
 
+  // Loading component for lazy-loaded routes
+  const PageLoader = () => (
+    <div className="min-h-[400px] bg-background flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto"></div>
+        <p className="mt-4 text-muted-foreground text-sm">Loading page...</p>
+      </div>
+    </div>
+  );
+
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="availability" element={<Availability />} />
-        <Route path="sessions" element={<Sessions />} />
-        <Route path="settings" element={<Settings />} />
-        <Route path="analytics" element={<Analytics />} />
-        <Route path="badges" element={<Badges />} />
-        <Route path="test-whatsapp" element={<TestWhatsApp />} />
-        <Route path="create-test-user" element={<CreateTestUser />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Route>
-    </Routes>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="availability" element={<Availability />} />
+          <Route path="sessions" element={<Sessions />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="badges" element={<Badges />} />
+          <Route path="test-whatsapp" element={<TestWhatsApp />} />
+          <Route path="create-test-user" element={<CreateTestUser />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
 

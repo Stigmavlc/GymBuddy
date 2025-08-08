@@ -75,9 +75,16 @@ export function Dashboard() {
           toast.success(`🏆 New badge unlocked: ${badgeUnlocks[0].badge.name}!`);
         }
 
-        // Load user badges with progress
-        const userBadges = await badgeService.getBadgesWithProgress(user.id);
-        setBadges(userBadges);
+        // Load user badges with progress - always load, even if empty
+        try {
+          const userBadges = await badgeService.getBadgesWithProgress(user.id);
+          console.log('Dashboard: Loaded badges:', userBadges?.length || 0);
+          setBadges(userBadges || []);
+        } catch (badgeError) {
+          console.error('Dashboard: Error loading badges:', badgeError);
+          // Set empty array if badge loading fails, but still show the section
+          setBadges([]);
+        }
 
       } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -256,29 +263,50 @@ export function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* Recent Badges */}
-      {badges.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Achievement Badges</CardTitle>
-                <CardDescription>Your latest accomplishments</CardDescription>
-              </div>
-              <Button variant="ghost" onClick={() => navigate('/badges')}>
-                View All →
-              </Button>
+      {/* Achievement Badges - Always Show */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Achievement Badges</CardTitle>
+              <CardDescription>
+                {badges.length > 0 
+                  ? "Your latest accomplishments" 
+                  : "Start achieving milestones to unlock badges!"
+                }
+              </CardDescription>
             </div>
-          </CardHeader>
-          <CardContent>
+            <Button variant="ghost" onClick={() => navigate('/badges')}>
+              View All →
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : badges.length > 0 ? (
             <BadgeGrid 
               badges={badges} 
               maxDisplay={4}
               showProgress={true}
             />
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <div className="text-center py-8">
+              <Award className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+              <p className="text-muted-foreground mb-4">
+                Complete gym sessions to start earning achievement badges!
+              </p>
+              <div className="text-sm text-muted-foreground">
+                <p>• Complete your first workout session</p>
+                <p>• Build a consistent workout streak</p>
+                <p>• Achieve milestone session counts</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
 
       {/* Badge Unlock Modal */}

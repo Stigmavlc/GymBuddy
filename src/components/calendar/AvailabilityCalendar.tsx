@@ -19,9 +19,10 @@ interface AvailabilityCalendarProps {
 
 export function AvailabilityCalendar({ onSave, initialAvailability }: AvailabilityCalendarProps) {
   const [availability, setAvailability] = useState<AvailabilityData>(() => {
+    // Initialize with empty sets to prevent phantom selections
     const initial: AvailabilityData = {};
     DAYS.forEach(day => {
-      initial[day.toLowerCase()] = initialAvailability?.[day.toLowerCase()] || new Set();
+      initial[day.toLowerCase()] = new Set();
     });
     return initial;
   });
@@ -33,20 +34,28 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
 
   // Manage availability based on week - only show saved availability for current week
   useEffect(() => {
-    if (currentWeekOffset === 0) {
+    console.log('AvailabilityCalendar: Week offset changed to:', currentWeekOffset);
+    console.log('AvailabilityCalendar: Initial availability:', initialAvailability);
+    
+    if (currentWeekOffset === 0 && initialAvailability) {
       // Current week - show saved availability from initialAvailability
       const currentWeekAvailability: AvailabilityData = {};
       DAYS.forEach(day => {
-        currentWeekAvailability[day.toLowerCase()] = initialAvailability?.[day.toLowerCase()] || new Set();
+        const dayKey = day.toLowerCase();
+        const daySlots = initialAvailability[dayKey];
+        // Ensure we create a new Set from the initial data to prevent reference issues
+        currentWeekAvailability[dayKey] = daySlots ? new Set(daySlots) : new Set();
       });
+      console.log('AvailabilityCalendar: Setting current week availability:', currentWeekAvailability);
       setAvailability(currentWeekAvailability);
       setIsDirty(false);
     } else {
-      // Future/past weeks - clear all selections
+      // Future/past weeks or no initial data - clear all selections
       const clearedAvailability: AvailabilityData = {};
       DAYS.forEach(day => {
         clearedAvailability[day.toLowerCase()] = new Set();
       });
+      console.log('AvailabilityCalendar: Clearing availability for non-current week');
       setAvailability(clearedAvailability);
       setIsDirty(false);
     }
@@ -119,7 +128,16 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
   };
 
   const getTotalSlots = () => {
-    return Object.values(availability).reduce((total, daySlots) => total + daySlots.size, 0);
+    const total = Object.values(availability).reduce((total, daySlots) => {
+      // Ensure daySlots is a Set and has a size property
+      if (daySlots instanceof Set) {
+        return total + daySlots.size;
+      }
+      console.warn('AvailabilityCalendar: Invalid daySlots detected:', daySlots);
+      return total;
+    }, 0);
+    console.log('AvailabilityCalendar: Total slots calculated:', total);
+    return total;
   };
 
   const getWeekDates = () => {
@@ -179,6 +197,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
               variant="outline"
               size="sm"
               onClick={() => setCurrentWeekOffset(currentWeekOffset - 1)}
+              disabled={currentWeekOffset <= 0}
             >
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous Week

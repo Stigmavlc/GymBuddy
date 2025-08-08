@@ -16,9 +16,75 @@ export interface BadgeUnlock {
 }
 
 export const badgeService = {
+  // Initialize badges if they don't exist
+  async initializeBadges(): Promise<boolean> {
+    try {
+      console.log('BadgeService: Initializing badges...');
+      
+      // Check if badges exist
+      const { data: existingBadges, error: checkError } = await supabase
+        .from('badges')
+        .select('count')
+        .limit(1);
+      
+      if (checkError) {
+        console.error('BadgeService: Error checking existing badges:', checkError);
+        return false;
+      }
+      
+      // If badges already exist, no need to initialize
+      if (existingBadges && existingBadges.length > 0) {
+        console.log('BadgeService: Badges already initialized');
+        return true;
+      }
+      
+      console.log('BadgeService: No badges found, creating default badges...');
+      
+      // Define default badges (matching what's in seed_badges.sql)
+      const defaultBadges = [
+        { id: 'first-week', name: 'Getting Started', description: 'Complete your first week of workouts', criteria: 'Complete first week with 2 sessions', icon: '🎯', category: 'progress' },
+        { id: 'consistency-5', name: 'Steady Gains', description: 'Maintain consistency for 5 weeks', criteria: '5 consecutive weeks with 2+ sessions each', icon: '📈', category: 'consistency' },
+        { id: 'consistency-10', name: 'Iron Will', description: 'Show dedication for 10 weeks', criteria: '10 consecutive weeks with 2+ sessions each', icon: '🔥', category: 'consistency' },
+        { id: 'unstoppable', name: 'Unstoppable Force', description: 'Amazing consistency streak', criteria: '20 consecutive weeks with 2+ sessions each', icon: '⚡', category: 'consistency' },
+        { id: 'quarter-master', name: 'Quarter Master', description: 'Three months of dedication', criteria: '12 consecutive weeks with 2+ sessions each', icon: '🏆', category: 'consistency' },
+        { id: 'half-year-hero', name: 'Half Year Hero', description: 'Six months of commitment', criteria: '25 consecutive weeks with 2+ sessions each', icon: '🌟', category: 'consistency' },
+        { id: 'yearly-legend', name: 'Yearly Legend', description: 'A full year of dedication', criteria: '50 consecutive weeks with 2+ sessions each', icon: '👑', category: 'consistency' },
+        { id: 'sessions-10', name: 'Double Digits', description: 'Reach your first milestone', criteria: 'Complete 10 total gym sessions', icon: '🎲', category: 'milestone' },
+        { id: 'sessions-50', name: 'Half Century', description: 'Major achievement unlocked', criteria: 'Complete 50 total gym sessions', icon: '💯', category: 'milestone' },
+        { id: 'century-club', name: 'Century Club', description: 'Join the elite 100 club', criteria: 'Complete 100 total gym sessions', icon: '💎', category: 'milestone' },
+        { id: 'double-century', name: 'Double Century', description: 'Elite performer status', criteria: 'Complete 200 total gym sessions', icon: '🚀', category: 'milestone' },
+        { id: 'triple-digits', name: 'Triple Digits Champion', description: 'Ultimate dedication', criteria: 'Complete 300 total gym sessions', icon: '🏅', category: 'milestone' },
+        { id: 'early-bird', name: 'Early Bird', description: 'Morning warrior dedication', criteria: 'Complete 5 sessions before 8 AM', icon: '🌅', category: 'time' },
+        { id: 'morning-champion', name: 'Morning Champion', description: 'Master of morning workouts', criteria: 'Complete 25 sessions before 8 AM', icon: '☀️', category: 'time' },
+        { id: 'night-owl', name: 'Night Owl', description: 'Evening athlete dedication', criteria: 'Complete 5 sessions after 8 PM', icon: '🌙', category: 'time' },
+        { id: 'night-champion', name: 'Night Champion', description: 'Master of evening workouts', criteria: 'Complete 25 sessions after 8 PM', icon: '🌃', category: 'time' },
+        { id: 'perfect-month', name: 'Monthly Master', description: 'Excel in a single month', criteria: 'Complete 8+ sessions in any month', icon: '📅', category: 'achievement' },
+        { id: 'perfect-quarter', name: 'Quarterly Champion', description: 'Three months of excellence', criteria: '3 consecutive months with 8+ sessions each', icon: '📊', category: 'achievement' }
+      ];
+      
+      const { error: insertError } = await supabase
+        .from('badges')
+        .insert(defaultBadges);
+      
+      if (insertError) {
+        console.error('BadgeService: Error inserting default badges:', insertError);
+        return false;
+      }
+      
+      console.log('BadgeService: Successfully initialized', defaultBadges.length, 'badges');
+      return true;
+    } catch (error) {
+      console.error('BadgeService: Error during badge initialization:', error);
+      return false;
+    }
+  },
+
   // Get all available badges from database
   async getAllBadges(): Promise<Badge[]> {
     try {
+      // Ensure badges are initialized
+      await this.initializeBadges();
+      
       const { data, error } = await supabase
         .from('badges')
         .select('*')
@@ -26,7 +92,7 @@ export const badgeService = {
 
       if (error) throw error;
 
-      return data?.map(badge => ({
+      const badges = data?.map(badge => ({
         id: badge.id,
         name: badge.name,
         description: badge.description,
@@ -34,9 +100,13 @@ export const badgeService = {
         icon: badge.icon,
         category: badge.category
       })) || [];
+      
+      console.log('BadgeService: Loaded', badges.length, 'badges from database');
+      return badges;
     } catch (error) {
-      console.error('Error fetching badges:', error);
-      throw error;
+      console.error('BadgeService: Error fetching badges:', error);
+      // Return empty array instead of throwing to prevent dashboard crashes
+      return [];
     }
   },
 
@@ -60,16 +130,20 @@ export const badgeService = {
   // Get badges with user progress
   async getBadgesWithProgress(userId: string): Promise<UserBadge[]> {
     try {
+      console.log('BadgeService: Getting badges with progress for user:', userId);
+      
       const [allBadges, userBadgeIds, sessions] = await Promise.all([
         this.getAllBadges(),
         this.getUserBadges(userId),
         sessionService.getUserSessions(userId)
       ]);
 
+      console.log('BadgeService: Found', allBadges.length, 'total badges,', userBadgeIds.length, 'unlocked badges,', sessions.length, 'user sessions');
+
       const completedSessions = sessions.filter(s => s.status === 'completed');
       const currentStreak = await sessionService.calculateStreak(userId);
 
-      return allBadges.map(badge => {
+      const badgesWithProgress = allBadges.map(badge => {
         const isUnlocked = userBadgeIds.includes(badge.id);
         const progress = this.calculateBadgeProgress(badge.id, completedSessions, currentStreak);
 
@@ -81,9 +155,13 @@ export const badgeService = {
           progressText: progress.text
         };
       });
+      
+      console.log('BadgeService: Returning', badgesWithProgress.length, 'badges with progress');
+      return badgesWithProgress;
     } catch (error) {
-      console.error('Error getting badges with progress:', error);
-      throw error;
+      console.error('BadgeService: Error getting badges with progress:', error);
+      // Return empty array instead of throwing to prevent dashboard crashes
+      return [];
     }
   },
 

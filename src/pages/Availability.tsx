@@ -55,35 +55,67 @@ export function Availability() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      console.log('Load availability result:', { data, error });
+      console.log('Load availability result:', { data, error, count: data?.length || 0 });
 
       if (error) {
         console.error('Error loading availability:', error);
         // Don't throw - just continue with empty availability
       }
 
+      // Always start with clean empty availability
       const availability: AvailabilityData = {};
       DAYS.forEach(day => {
         availability[day.toLowerCase()] = new Set();
       });
 
-      if (data && data.length > 0) {
-        data.forEach(slot => {
+      // Only process data if it exists and has valid entries
+      if (data && Array.isArray(data) && data.length > 0) {
+        console.log('Processing', data.length, 'availability slots');
+        data.forEach((slot, index) => {
+          // Validate slot data
+          if (!slot.day || typeof slot.start_time !== 'number' || typeof slot.end_time !== 'number') {
+            console.warn('Invalid slot data at index', index, ':', slot);
+            return;
+          }
+          
           const dayKey = slot.day.toLowerCase();
-          for (let hour = slot.start_time; hour < slot.end_time; hour++) {
+          
+          // Validate day key
+          if (!availability[dayKey]) {
+            console.warn('Invalid day key:', dayKey);
+            return;
+          }
+          
+          // Add hours for this slot (ensuring valid range)
+          const startHour = Math.max(0, Math.min(23, slot.start_time));
+          const endHour = Math.max(startHour + 1, Math.min(24, slot.end_time));
+          
+          for (let hour = startHour; hour < endHour; hour++) {
             availability[dayKey].add(hour);
           }
         });
-        console.log('Loaded availability:', availability);
+        
+        // Log final availability for debugging
+        const totalSlots = Object.values(availability).reduce((sum, daySet) => sum + daySet.size, 0);
+        console.log('Final loaded availability - total slots:', totalSlots);
+        Object.entries(availability).forEach(([day, slots]) => {
+          if (slots.size > 0) {
+            console.log(`${day}: ${slots.size} slots`, Array.from(slots).sort());
+          }
+        });
       } else {
-        console.log('No existing availability found');
+        console.log('No existing availability found or invalid data');
       }
 
       setInitialAvailability(availability);
     } catch (error) {
       console.error('Error loading availability:', error);
-      // Don't show error toast - just continue with empty availability
-      setInitialAvailability({});
+      // Initialize with clean empty availability on error
+      const emptyAvailability: AvailabilityData = {};
+      DAYS.forEach(day => {
+        emptyAvailability[day.toLowerCase()] = new Set();
+      });
+      setInitialAvailability(emptyAvailability);
     } finally {
       setLoading(false);
     }
@@ -112,16 +144,18 @@ export function Availability() {
     setLoading(true);
     
     try {
-      // Delete existing availability
+      // Delete existing availability with better error handling
       console.log('Deleting existing availability...');
-      const { error: deleteError } = await supabase
+      const { error: deleteError, count: deletedCount } = await supabase
         .from('availability')
-        .delete()
+        .delete({ count: 'exact' })
         .eq('user_id', user.id);
       
       if (deleteError) {
         console.error('Delete error:', deleteError);
         // Continue anyway - might be first time saving
+      } else {
+        console.log('Successfully deleted', deletedCount, 'existing availability slots');
       }
 
       // Convert availability to database format
