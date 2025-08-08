@@ -31,7 +31,7 @@ export const authService = {
 
   // Sign in with email and password
   async signIn(email: string, password: string) {
-    console.log('authService.signIn called with:', email)
+    console.log('🔐 authService.signIn called with:', email)
     
     // Only allow Ivan, Youssef, and test account to use this app
     const allowedEmails = [
@@ -45,17 +45,53 @@ export const authService = {
     }
 
     try {
+      console.log('📡 Attempting Supabase authentication...')
+      const startTime = Date.now()
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
-      console.log('Supabase signIn response:', { data, error })
+      const endTime = Date.now()
+      console.log(`⏱️  Authentication took ${endTime - startTime}ms`)
+      console.log('📋 Supabase signIn response:', { 
+        data: data ? {
+          user: data.user ? {
+            id: data.user.id,
+            email: data.user.email,
+            confirmed_at: data.user.confirmed_at
+          } : null,
+          session: data.session ? {
+            access_token: data.session.access_token?.substring(0, 20) + '...',
+            expires_at: data.session.expires_at
+          } : null
+        } : null,
+        error: error ? {
+          name: error.name,
+          message: error.message,
+          status: (error as any).status,
+          code: (error as any).code
+        } : null
+      })
       
-      if (error) throw error
+      if (error) {
+        console.error('❌ Authentication failed:', {
+          name: error.name,
+          message: error.message,
+          status: (error as any).status,
+          code: (error as any).code,
+          details: (error as any).details
+        })
+        throw error
+      }
+      
+      console.log('✅ Authentication successful')
       return data
     } catch (error) {
-      console.error('authService.signIn error:', error)
+      console.error('💥 authService.signIn error:', error)
+      console.error('🔍 Error type:', typeof error)
+      console.error('🔍 Error properties:', Object.getOwnPropertyNames(error))
       throw error
     }
   },

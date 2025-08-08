@@ -9,24 +9,62 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// Test database connectivity
+// Test database connectivity with enhanced debugging
 export const testConnection = async () => {
   try {
-    console.log('Testing Supabase connection...')
-    console.log('URL:', supabaseUrl)
-    console.log('Key:', supabaseAnonKey?.substring(0, 20) + '...')
+    console.log('🔍 Testing Supabase connection...')
+    console.log('📡 URL:', supabaseUrl)
+    console.log('🔑 Key:', supabaseAnonKey?.substring(0, 20) + '...')
     
+    // Test basic connectivity first
+    const startTime = Date.now()
     const { data, error } = await supabase
       .from('users')
-      .select('count')
+      .select('count(*)')
       .limit(1);
+    const endTime = Date.now()
       
-    console.log('Connection test result:', { data, error })
-    return { success: !error, error }
+    console.log(`⏱️  Query took ${endTime - startTime}ms`)
+    
+    if (error) {
+      console.error('❌ Connection test failed:', error)
+      console.error('📋 Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      })
+      return { success: false, error }
+    } else {
+      console.log('✅ Connection test successful:', data)
+      return { success: true, error: null }
+    }
   } catch (err) {
-    console.error('Connection test failed:', err)
+    console.error('💥 Connection test exception:', err)
     return { success: false, error: err }
   }
+}
+
+// Enhanced authentication debugging
+export const debugAuth = () => {
+  console.log('🔐 Authentication Debug Info:')
+  console.log('📡 Supabase URL:', supabaseUrl)
+  console.log('🔑 Has Anon Key:', !!supabaseAnonKey)
+  console.log('🌐 Environment:', import.meta.env.MODE)
+  console.log('🔧 User Agent:', navigator.userAgent)
+  console.log('📍 Origin:', window.location.origin)
+  
+  // Check if we can reach Supabase
+  fetch(`${supabaseUrl}/rest/v1/`, {
+    headers: {
+      'apikey': supabaseAnonKey,
+      'Authorization': `Bearer ${supabaseAnonKey}`
+    }
+  }).then(response => {
+    console.log('🌐 Direct Supabase ping response:', response.status, response.statusText)
+  }).catch(error => {
+    console.error('💥 Direct Supabase ping failed:', error)
+  })
 }
 
 // Database types based on our schema

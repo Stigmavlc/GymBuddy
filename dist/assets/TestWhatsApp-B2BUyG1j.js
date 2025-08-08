@@ -1,4 +1,4 @@
-import{j as o}from"./ui-vendor-BkC7JKse.js";import{r as d}from"./react-vendor-Bxu37LRh.js";import{B as g}from"./auth-O_ZHyfl3.js";import{w as a}from"./whatsappService-D2FDE2Ar.js";import"./utils-vendor-BPxHO2rW.js";import"./supabase-vendor-2z3JYExL.js";function x(){const[h,i]=d.useState(""),[p,c]=d.useState(!1),u=async()=>{c(!0),i(`🧪 Testing WhatsApp Logic (Option B) - No actual messages sent
+import{j as o}from"./ui-vendor-BkC7JKse.js";import{r as d}from"./react-vendor-Bxu37LRh.js";import{B as g}from"./auth-rP7Tyqco.js";import{w as a}from"./whatsappService-Bg4czjNJ.js";import"./utils-vendor-BPxHO2rW.js";import"./supabase-vendor-2z3JYExL.js";function x(){const[h,i]=d.useState(""),[p,c]=d.useState(!1),u=async()=>{c(!0),i(`🧪 Testing WhatsApp Logic (Option B) - No actual messages sent
 
 `);try{const s=await a.checkBothUsersAvailability();let e=`📋 Step 1: Checking if both users have availability...
 `;if(e+=`✅ Both set: ${s.bothSet}
