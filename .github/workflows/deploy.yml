@@ -1,54 +1,21 @@
-name: Deploy to GitHub Pages
+# This workflow is disabled because we're using the docs folder approach
+# GitHub Pages is configured to deploy directly from the docs folder on the main branch
+# No additional CI/CD is needed
+
+name: Deploy to GitHub Pages (Disabled)
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch: # Only run manually if needed
 
 jobs:
-  build:
+  info:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-
-    - name: Install dependencies
-      run: npm ci
-
-    - name: Build
-      run: npm run build
-
-    - name: Setup Pages
-      uses: actions/configure-pages@v4
-      if: github.ref == 'refs/heads/main'
-
-    - name: Upload artifact
-      uses: actions/upload-pages-artifact@v3
-      if: github.ref == 'refs/heads/main'
-      with:
-        path: ./dist
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    
-    permissions:
-      pages: write
-      id-token: write
-
-    steps:
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v4
+    - name: Deployment Info
+      run: |
+        echo "This workflow is disabled."
+        echo "GitHub Pages deploys automatically from the /docs folder on the main branch."
+        echo "To update the site:"
+        echo "1. Run 'npm run build' locally"
+        echo "2. Copy dist/* to docs/"
+        echo "3. Commit and push to main branch"
