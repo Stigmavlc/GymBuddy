@@ -10,6 +10,14 @@ interface BadgeGridProps {
 }
 
 export function BadgeGrid({ badges, title, showProgress = true, maxDisplay }: BadgeGridProps) {
+  console.log('BadgeGrid: Rendering with props:', {
+    badgeCount: badges?.length || 0,
+    title,
+    showProgress,
+    maxDisplay,
+    firstBadge: badges?.[0] ? { id: badges[0].id, name: badges[0].name } : null
+  });
+
   // Group badges by category
   const badgesByCategory = badges.reduce((acc, badge) => {
     const category = badge.category || 'general';
@@ -30,6 +38,14 @@ export function BadgeGrid({ badges, title, showProgress = true, maxDisplay }: Ba
 
   const displayBadges = maxDisplay ? badges.slice(0, maxDisplay) : badges;
   const unlockedCount = badges.filter(b => b.isUnlocked).length;
+  
+  console.log('BadgeGrid: Processing badges:', {
+    totalBadges: badges.length,
+    displayBadges: displayBadges.length,
+    unlockedCount,
+    maxDisplay,
+    willShowPlaceholder: maxDisplay && displayBadges.length === 0
+  });
 
   return (
     <div className="space-y-6">

@@ -53,6 +53,11 @@ export function Dashboard() {
         table: 'availability'
       }, (payload) => {
         console.log('Dashboard: Availability change detected:', payload);
+        
+        // Check if this change affects any user we care about
+        const affectedUserId = (payload.new as any)?.user_id || (payload.old as any)?.user_id;
+        console.log('Dashboard: Change affects user:', affectedUserId);
+        
         toast.info('Availability has been updated', {
           description: 'Refresh to see the latest changes',
           action: {
@@ -107,15 +112,27 @@ export function Dashboard() {
 
         // Initialize badges if needed, then load user badges with progress
         try {
+          console.log('Dashboard: Starting badge initialization and loading');
+          
           // First ensure badges are initialized in the database
-          await badgeService.initializeBadges();
+          const initSuccess = await badgeService.initializeBadges();
+          console.log('Dashboard: Badge initialization result:', initSuccess);
           
           // Then load user badges with progress
           const userBadges = await badgeService.getBadgesWithProgress(user.id);
-          console.log('Dashboard: Loaded badges:', userBadges?.length || 0);
+          console.log('Dashboard: Loaded badges:', {
+            count: userBadges?.length || 0,
+            badges: userBadges?.map(b => ({ id: b.id, name: b.name, isUnlocked: b.isUnlocked })) || []
+          });
+          
           setBadges(userBadges || []);
-        } catch (badgeError) {
+          
+          // Log final badge state for debugging
+          console.log('Dashboard: Badge state set successfully');
+          
+        } catch (badgeError: any) {
           console.error('Dashboard: Error loading badges:', badgeError);
+          console.error('Dashboard: Badge error stack:', badgeError?.stack);
           // Set empty array if badge loading fails, but still show the section
           setBadges([]);
         }

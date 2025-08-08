@@ -108,7 +108,7 @@ function AppContent() {
 
 function App() {
   return (
-    <BrowserRouter basename={import.meta.env.PROD ? "/GymBuddy" : ""}>
+    <BrowserRouter>
       <AppContent />
       <Toaster position="top-right" />
     </BrowserRouter>

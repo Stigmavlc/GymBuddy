@@ -23,21 +23,29 @@ export function Availability() {
     if (user) {
       loadAvailability();
       
-      // Subscribe to real-time changes
+      // Subscribe to real-time changes for ALL availability changes
+      // Remove user filter to capture bot operations
       const subscription = supabase
-        .channel('availability-changes')
+        .channel('availability-changes-all')
         .on('postgres_changes', {
           event: '*',
           schema: 'public',
-          table: 'availability',
-          filter: `user_id=eq.${user.id}`
+          table: 'availability'
         }, (payload) => {
           console.log('Availability page: Change detected:', payload);
-          // Reload availability when changes occur
-          loadAvailability();
-          toast.info('Your availability has been updated', {
-            description: 'The changes are now reflected on the calendar'
-          });
+          
+          // Check if this change affects the current user
+          const affectedUserId = (payload.new as any)?.user_id || (payload.old as any)?.user_id;
+          if (affectedUserId === user.id) {
+            console.log('Availability page: Change affects current user, reloading');
+            // Reload availability when changes occur
+            loadAvailability();
+            toast.info('Your availability has been updated', {
+              description: 'The changes are now reflected on the calendar'
+            });
+          } else {
+            console.log('Availability page: Change affects different user:', affectedUserId);
+          }
         })
         .subscribe();
       
@@ -61,6 +69,9 @@ export function Availability() {
       console.log('Loading availability for user:', user.id);
       
       // Force fresh data by adding a timestamp to bypass any caching
+      const timestamp = new Date().getTime();
+      console.log('Loading availability with timestamp:', timestamp);
+      
       const { data, error } = await supabase
         .from('availability')
         .select('*')

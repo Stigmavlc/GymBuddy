@@ -1,21 +1,29 @@
-# This workflow is disabled because we're using the docs folder approach
-# GitHub Pages is configured to deploy directly from the docs folder on the main branch
-# No additional CI/CD is needed
+# This workflow is disabled - GymBuddy has been migrated to Heroku
+# GitHub Pages deployment is no longer used
+# New deployment target: https://gymbuddy-frontend.herokuapp.com
 
-name: Deploy to GitHub Pages (Disabled)
+name: GitHub Pages Migration Notice
 
 on:
-  workflow_dispatch: # Only run manually if needed
+  workflow_dispatch: # Only run manually for info
 
 jobs:
-  info:
+  migration-info:
     runs-on: ubuntu-latest
     steps:
-    - name: Deployment Info
+    - name: Migration Notice
       run: |
-        echo "This workflow is disabled."
-        echo "GitHub Pages deploys automatically from the /docs folder on the main branch."
-        echo "To update the site:"
-        echo "1. Run 'npm run build' locally"
-        echo "2. Copy dist/* to docs/"
-        echo "3. Commit and push to main branch"
+        echo "GymBuddy has been migrated from GitHub Pages to Heroku"
+        echo "New deployment target: https://gymbuddy-frontend.herokuapp.com"
+        echo ""
+        echo "Benefits of Heroku deployment:"
+        echo "- Better routing support for React Router"
+        echo "- Environment variable management"
+        echo "- Better debugging and logging"
+        echo "- Custom server configuration"
+        echo "- No base path issues"
+        echo ""
+        echo "To deploy updates:"
+        echo "1. Commit changes to main branch"
+        echo "2. Run: git push heroku main"
+        echo "3. Monitor: heroku logs --tail"

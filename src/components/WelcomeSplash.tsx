@@ -62,9 +62,17 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
   const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
-    if (!user || !profile) return;
+    console.log('WelcomeSplash: useEffect triggered', { user: !!user, profile: !!profile, email: profile?.email });
+    
+    // Add fallback message to prevent empty state
+    if (!user || !profile) {
+      console.log('WelcomeSplash: Missing auth data, setting fallback message');
+      setMessage("Welcome to GymBuddy! Your workout companion is ready to help you stay consistent. 💪");
+      return;
+    }
 
     const isYoussef = profile.email !== 'ivanaguilarmari@gmail.com';
+    console.log('WelcomeSplash: User identified as', isYoussef ? 'Youssef' : 'Ivan');
     
     if (isYoussef) {
       // Check if it's Youssef's first visit
@@ -73,18 +81,23 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
       
       if (!hasVisitedBefore) {
         // First time - show welcome message
+        console.log('WelcomeSplash: Setting first-time message for Youssef');
         setMessage(YOUSSEF_FIRST_TIME_MESSAGE);
         localStorage.setItem(firstVisitKey, 'true');
       } else {
         // Subsequent visits - show rotating message
         const randomIndex = Math.floor(Math.random() * YOUSSEF_MESSAGES.length);
+        console.log('WelcomeSplash: Setting rotating message for Youssef', randomIndex);
         setMessage(YOUSSEF_MESSAGES[randomIndex]);
       }
     } else {
       // Ivan - show motivational quote
       const randomIndex = Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length);
+      console.log('WelcomeSplash: Setting motivational quote for Ivan', randomIndex);
       setMessage(MOTIVATIONAL_QUOTES[randomIndex]);
     }
+    
+    console.log('WelcomeSplash: Message set to:', message || 'EMPTY');
   }, [user, profile]);
 
   useEffect(() => {
@@ -105,17 +118,31 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
     return () => clearInterval(timer);
   }, [onComplete]);
 
-  if (!message) return null;
+  if (!message) {
+    console.log('WelcomeSplash: No message set, rendering null');
+    return null;
+  }
+  
+  console.log('WelcomeSplash: Rendering with message:', message.substring(0, 50) + '...');
 
   return (
     <div 
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-b from-gray-900 to-black transition-opacity duration-500 ${
+      className={`fixed inset-0 z-50 flex items-center justify-center transition-opacity duration-500 ${
         isVisible ? 'opacity-100' : 'opacity-0'
       }`}
+      style={{
+        background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+        backdropFilter: 'blur(10px)'
+      }}
     >
       <div className="max-w-4xl mx-auto px-8 text-center">
         <div className="animate-fade-in">
-          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-8 leading-tight drop-shadow-lg">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-8 leading-tight" 
+              style={{ 
+                color: '#ffffff',
+                textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+                filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.3))'
+              }}>
             {message}
           </h1>
           
