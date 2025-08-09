@@ -58,21 +58,32 @@ interface WelcomeSplashProps {
 export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
   const { user, profile } = useAuth();
   const [timeLeft, setTimeLeft] = useState(5);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(true);
+  const [isMessageReady, setIsMessageReady] = useState(false);
 
   useEffect(() => {
-    console.log('WelcomeSplash: useEffect triggered', { user: !!user, profile: !!profile, email: profile?.email });
+    console.log('[WelcomeSplash] useEffect triggered', { 
+      user: !!user, 
+      profile: !!profile, 
+      email: profile?.email,
+      timestamp: new Date().toISOString()
+    });
     
     // Add fallback message to prevent empty state
     if (!user || !profile) {
-      console.log('WelcomeSplash: Missing auth data, setting fallback message');
-      setMessage("Welcome to GymBuddy! Your workout companion is ready to help you stay consistent. 💪");
+      console.log('[WelcomeSplash] Missing auth data, setting fallback message');
+      const fallbackMessage = "Welcome to GymBuddy! Your workout companion is ready to help you stay consistent. 💪";
+      setMessage(fallbackMessage);
+      setIsMessageReady(true);
+      console.log('[WelcomeSplash] Fallback message set immediately:', fallbackMessage);
       return;
     }
 
     const isYoussef = profile.email !== 'ivanaguilarmari@gmail.com';
-    console.log('WelcomeSplash: User identified as', isYoussef ? 'Youssef' : 'Ivan');
+    console.log('[WelcomeSplash] User identified as:', isYoussef ? 'Youssef' : 'Ivan');
+    
+    let selectedMessage: string;
     
     if (isYoussef) {
       // Check if it's Youssef's first visit
@@ -81,49 +92,86 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
       
       if (!hasVisitedBefore) {
         // First time - show welcome message
-        console.log('WelcomeSplash: Setting first-time message for Youssef');
-        setMessage(YOUSSEF_FIRST_TIME_MESSAGE);
+        console.log('[WelcomeSplash] Setting first-time message for Youssef');
+        selectedMessage = YOUSSEF_FIRST_TIME_MESSAGE;
         localStorage.setItem(firstVisitKey, 'true');
       } else {
         // Subsequent visits - show rotating message
         const randomIndex = Math.floor(Math.random() * YOUSSEF_MESSAGES.length);
-        console.log('WelcomeSplash: Setting rotating message for Youssef', randomIndex);
-        setMessage(YOUSSEF_MESSAGES[randomIndex]);
+        console.log('[WelcomeSplash] Setting rotating message for Youssef, index:', randomIndex);
+        selectedMessage = YOUSSEF_MESSAGES[randomIndex];
       }
     } else {
       // Ivan - show motivational quote
       const randomIndex = Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length);
-      console.log('WelcomeSplash: Setting motivational quote for Ivan', randomIndex);
-      setMessage(MOTIVATIONAL_QUOTES[randomIndex]);
+      console.log('[WelcomeSplash] Setting motivational quote for Ivan, index:', randomIndex);
+      selectedMessage = MOTIVATIONAL_QUOTES[randomIndex];
     }
     
-    console.log('WelcomeSplash: Message set to:', message || 'EMPTY');
+    // Set message and mark as ready simultaneously to prevent flickering
+    console.log('[WelcomeSplash] Setting message:', selectedMessage.substring(0, 50) + '...');
+    setMessage(selectedMessage);
+    setIsMessageReady(true);
+    console.log('[WelcomeSplash] Message initialization complete at:', new Date().toISOString());
   }, [user, profile]);
 
   useEffect(() => {
+    // Only start countdown timer when message is ready to prevent timing issues
+    if (!isMessageReady) {
+      console.log('[WelcomeSplash] Waiting for message to be ready before starting timer');
+      return;
+    }
+    
+    console.log('[WelcomeSplash] Starting 5-second countdown timer at:', new Date().toISOString());
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
+        console.log('[WelcomeSplash] Timer tick:', prev - 1);
         if (prev <= 1) {
           clearInterval(timer);
+          console.log('[WelcomeSplash] Timer complete, starting fade out animation');
           // Start fade out animation
           setIsVisible(false);
           // Complete after animation
-          setTimeout(onComplete, 500);
+          setTimeout(() => {
+            console.log('[WelcomeSplash] Fade out complete, calling onComplete');
+            onComplete();
+          }, 500);
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [onComplete]);
+    return () => {
+      console.log('[WelcomeSplash] Cleaning up timer');
+      clearInterval(timer);
+    };
+  }, [onComplete, isMessageReady]);
 
-  if (!message) {
-    console.log('WelcomeSplash: No message set, rendering null');
-    return null;
+  // Show loading state while waiting for message to be ready
+  if (!isMessageReady || message === null) {
+    console.log('[WelcomeSplash] Message not ready yet, showing loading state');
+    return (
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{
+          background: 'linear-gradient(135deg, #1a1a1a 0%, #000000 100%)',
+          backdropFilter: 'blur(10px)'
+        }}
+      >
+        <div className="max-w-4xl mx-auto px-8 text-center">
+          <div className="animate-fade-in">
+            <div className="text-white text-lg">Loading your personalized message...</div>
+            <div className="mt-4">
+              <div className="inline-block w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
   
-  console.log('WelcomeSplash: Rendering with message:', message.substring(0, 50) + '...');
+  console.log('[WelcomeSplash] Rendering with message:', message.substring(0, 50) + '...');
 
   return (
     <div 
@@ -140,8 +188,7 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
           <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-8 leading-tight" 
               style={{ 
                 color: '#ffffff',
-                textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-                filter: 'drop-shadow(0 0 10px rgba(255,255,255,0.3))'
+                textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
               }}>
             {message}
           </h1>
