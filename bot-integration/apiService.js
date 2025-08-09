@@ -414,9 +414,8 @@ class GymBuddyAPIService {
             return { success: false, error: 'User not found' };
         }
 
-        const result = await this.makeAPIRequest(`/sessions/${sessionId}`, {
-            method: 'DELETE',
-            body: JSON.stringify({ userEmail: email })
+        const result = await this.makeAPIRequest(`/sessions/${sessionId}/by-email/${encodeURIComponent(email)}`, {
+            method: 'DELETE'
         });
         
         if (result.success) {

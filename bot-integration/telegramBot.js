@@ -510,7 +510,17 @@ The test created and deleted a temporary availability slot to verify real-time s
         }
 
         try {
-            this.debugLog('Step 1: Getting user data and availability');
+            this.debugLog('Step 1: Checking for pending session choice');
+            
+            // CHECK FOR PENDING SESSION CHOICE FIRST - before any other processing
+            const existingContext = this.userContexts.get(telegramId);
+            if (existingContext && existingContext.waitingForSessionChoice) {
+                this.debugLog('User has pending session choice, processing number selection');
+                await this.handleSessionChoice(msg, existingContext, messageText);
+                return;
+            }
+            
+            this.debugLog('Step 2: Getting user data and availability');
             
             // Get user data and availability for context
             const user = await this.apiService.getUserByTelegramId(telegramId);
@@ -527,7 +537,7 @@ The test created and deleted a temporary availability slot to verify real-time s
                 return;
             }
 
-            this.debugLog('Step 2: Preparing context for Claude');
+            this.debugLog('Step 3: Preparing context for Claude');
             
             // Store context for potential follow-up actions
             this.userContexts.set(telegramId, {
@@ -1102,6 +1112,63 @@ Respond to this general conversation message. Focus on fitness motivation and ad
             }
         } finally {
             this.debugLog('=== Session Deletion Processing Completed ===');
+        }
+    }
+    
+    /**
+     * Handle session choice when user replies with a number
+     */
+    async handleSessionChoice(msg, context, messageText) {
+        const chatId = msg.chat.id;
+        const telegramId = msg.from.id;
+        
+        this.debugLog('=== Session Choice Processing Started ===');
+        this.debugLog('User message:', messageText);
+        this.debugLog('Available sessions:', context.availableSessions);
+        
+        try {
+            // Parse the user's choice
+            const choiceText = messageText.trim();
+            const choiceNumber = parseInt(choiceText);
+            
+            this.debugLog('Parsed choice number:', choiceNumber);
+            
+            // Validate the choice
+            if (isNaN(choiceNumber) || choiceNumber < 1 || choiceNumber > context.availableSessions.length) {
+                await this.bot.sendMessage(chatId, 
+                    `❌ Please enter a valid number between 1 and ${context.availableSessions.length}.`
+                );
+                return; // Keep waiting for valid choice
+            }
+            
+            // Get the selected session (arrays are 0-indexed, user sees 1-indexed)
+            const selectedSession = context.availableSessions[choiceNumber - 1];
+            this.debugLog('Selected session:', selectedSession);
+            
+            // Show confirmation and delete the session
+            const dayName = selectedSession.day.charAt(0).toUpperCase() + selectedSession.day.slice(1);
+            await this.bot.sendMessage(chatId, 
+                `🗑️ Canceling your session: ${dayName} ${selectedSession.start_time}:00-${selectedSession.end_time}:00...`
+            );
+            
+            // Delete the session via API
+            const result = await this.apiService.deleteUserSession(telegramId, selectedSession.id);
+            
+            if (result.success) {
+                await this.bot.sendMessage(chatId, 
+                    `✅ Session canceled successfully!\n\n🔄 Your website will update automatically.`
+                );
+            } else {
+                await this.sendErrorMessage(chatId, `Failed to cancel session: ${result.error}`);
+            }
+            
+        } catch (error) {
+            console.error('[Bot Error] Session choice processing failed:', error);
+            await this.sendErrorMessage(chatId, 'Failed to process your session choice. Please try again.');
+        } finally {
+            // Clear the context - user is no longer waiting for a choice
+            this.userContexts.delete(telegramId);
+            this.debugLog('=== Session Choice Processing Completed ===');
         }
     }
     
