@@ -1,0 +1,45 @@
+{
+  "name": "gymbuddy-bot-integration",
+  "version": "1.0.0",
+  "description": "GymBuddy Telegram Bot API Integration - converts bot from direct database calls to API endpoints for perfect website synchronization",
+  "main": "telegramBot.js",
+  "scripts": {
+    "start": "node telegramBot.js",
+    "dev": "BOT_DEBUG_MODE=true node telegramBot.js",
+    "test": "node test-integration.js",
+    "test-api": "node -e \"const api = require('./apiService'); new api().healthCheck().then(console.log);\""
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.64.0",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "gym", 
+    "fitness",
+    "scheduling",
+    "api",
+    "sync"
+  ],
+  "author": "GymBuddy Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/GymBuddy"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/GymBuddy/issues"
+  },
+  "homepage": "https://your-website.github.io/GymBuddy/",
+  "config": {
+    "gymbuddy_api_url": "https://gymbuddy-api-ivan-9969a58fc7f4.herokuapp.com",
+    "telegram_bot_token": "8255853885:AAFlGskAj77voLkFCtMFEXlewBnusB4gzkQ"
+  }
+}
