@@ -685,6 +685,146 @@ app.get('/sessions/upcoming', async (req, res) => {
     }
 });
 
+// Get user sessions by email (for bot)
+app.get('/sessions/by-email/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        
+        console.log(`Bot operation: Getting sessions for email: ${email}`);
+        
+        // Get user ID by email
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('id, name, email')
+            .eq('email', email)
+            .single();
+            
+        if (userError || !user) {
+            console.log('User not found for email:', email, userError);
+            return res.status(404).json({ error: 'User not found', email });
+        }
+
+        // Get current date for filtering future sessions only
+        const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+        
+        // Get user sessions where they are a participant
+        // CRITICAL FIX: Add proper filtering like website does
+        const { data: sessions, error: sessionsError } = await supabase
+            .from('sessions')
+            .select('*')
+            .contains('participants', [user.id])
+            .eq('status', 'confirmed')                    // Only confirmed sessions
+            .gte('date', currentDate)                     // Only future/current dates
+            .order('date', { ascending: true })
+            .order('start_time', { ascending: true });
+
+        if (sessionsError) {
+            console.error('Error fetching sessions:', sessionsError);
+            return res.status(500).json({ error: sessionsError.message });
+        }
+
+        // Additional filtering to exclude sessions that have already ended today
+        const now = new Date();
+        const currentHour = now.getHours();
+        const todayString = now.toISOString().split('T')[0];
+        
+        const upcomingSessions = sessions.filter(session => {
+            // If session is today, check if it hasn't ended yet
+            if (session.date === todayString) {
+                return session.end_time > currentHour;
+            }
+            // If session is in the future, include it
+            return true;
+        });
+
+        console.log(`Found ${sessions.length} confirmed sessions, ${upcomingSessions.length} upcoming for user ${user.name}`);
+
+        res.json({
+            success: true,
+            user: user.name,
+            email: user.email,
+            userId: user.id,
+            sessions: upcomingSessions || [],
+            count: upcomingSessions ? upcomingSessions.length : 0,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in get sessions by email endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete/cancel a specific session by ID and email (for bot)
+app.delete('/sessions/:sessionId/by-email/:email', async (req, res) => {
+    try {
+        const { sessionId, email } = req.params;
+        
+        console.log(`Bot operation: Canceling session ${sessionId} for email: ${email}`);
+        
+        // Get user ID by email
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('id, name, email')
+            .eq('email', email)
+            .single();
+            
+        if (userError || !user) {
+            console.log('User not found for email:', email, userError);
+            return res.status(404).json({ error: 'User not found', email });
+        }
+
+        // Get the session to verify user is a participant
+        const { data: session, error: sessionError } = await supabase
+            .from('sessions')
+            .select('*')
+            .eq('id', sessionId)
+            .single();
+
+        if (sessionError || !session) {
+            console.log('Session not found:', sessionId, sessionError);
+            return res.status(404).json({ error: 'Session not found', sessionId });
+        }
+
+        // Check if user is a participant
+        if (!session.participants || !session.participants.includes(user.id)) {
+            console.log('User not authorized to cancel session:', user.id, session.participants);
+            return res.status(403).json({ error: 'Not authorized to cancel this session' });
+        }
+
+        // Update session status to cancelled
+        const { data: updatedSession, error: updateError } = await supabase
+            .from('sessions')
+            .update({ 
+                status: 'cancelled',
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', sessionId)
+            .select()
+            .single();
+
+        if (updateError) {
+            console.error('Error cancelling session:', updateError);
+            return res.status(500).json({ error: updateError.message });
+        }
+
+        console.log(`Successfully cancelled session ${sessionId} for user ${user.name}`);
+
+        res.json({
+            success: true,
+            message: `Session cancelled successfully`,
+            user: user.name,
+            email: user.email,
+            session: updatedSession,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in cancel session endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`🏋️ GymBuddy API running on port ${PORT}`);
 });
