@@ -27,6 +27,7 @@ interface TimePickerProps {
   initialTimeRange?: TimeRange | null
   onSave: (timeRange: TimeRange) => void
   onCancel: () => void
+  onRemove?: () => void
   children: React.ReactNode
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -36,7 +37,8 @@ export function TimePicker({
   hour, 
   initialTimeRange, 
   onSave, 
-  onCancel, 
+  onCancel,
+  onRemove,
   children,
   open,
   onOpenChange
@@ -234,6 +236,19 @@ export function TimePicker({
 
             {/* Actions */}
             <div className="flex gap-2 pt-2">
+              {initialTimeRange && onRemove && (
+                <Button 
+                  onClick={() => {
+                    onRemove()
+                    onOpenChange?.(false)
+                  }} 
+                  variant="destructive" 
+                  size="sm"
+                  className="flex-1"
+                >
+                  Remove
+                </Button>
+              )}
               <Button 
                 onClick={handleCancel} 
                 variant="outline" 

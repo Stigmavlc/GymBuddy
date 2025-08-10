@@ -15,6 +15,7 @@ const Analytics = lazy(() => import('@/pages/Analytics').then(module => ({ defau
 const Badges = lazy(() => import('@/pages/Badges').then(module => ({ default: module.Badges })));
 const TestWhatsApp = lazy(() => import('@/pages/TestWhatsApp').then(module => ({ default: module.TestWhatsApp })));
 const CreateTestUser = lazy(() => import('@/pages/CreateTestUser').then(module => ({ default: module.CreateTestUser })));
+const AuthCallback = lazy(() => import('@/pages/AuthCallback'));
 
 function AppContent() {
   const { user, loading, error, justLoggedIn, clearJustLoggedIn } = useAuth();
@@ -90,6 +91,7 @@ function AppContent() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />

@@ -94,21 +94,14 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     const currentTimeRange = availability[dayKey].get(hour);
     
     if (currentTimeRange === null) {
-      // Full hour slot exists - remove it or show time picker to modify
+      // Full hour slot exists - show time picker to modify
       setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
     } else if (currentTimeRange) {
       // Time range exists - show time picker to modify
       setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
     } else {
-      // No slot exists - add full hour slot
-      setAvailability(prev => {
-        const newAvailability = { ...prev };
-        const daySlots = new Map(newAvailability[dayKey]);
-        daySlots.set(hour, null); // null = full hour
-        newAvailability[dayKey] = daySlots;
-        return newAvailability;
-      });
-      setIsDirty(true);
+      // No slot exists - show time picker to add one
+      setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
     }
   };
 
@@ -129,25 +122,31 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
   };
 
-  // Handle time picker cancel/remove
+  // Handle time picker cancel
   const handleTimePickerCancel = (day: string, hour: number) => {
     const dayKey = day.toLowerCase();
     const timePickerKey = `${dayKey}-${hour}`;
-    const currentTimeRange = availability[dayKey].get(hour);
     
-    if (currentTimeRange !== undefined) {
-      // Remove the time slot
-      setAvailability(prev => {
-        const newAvailability = { ...prev };
-        const daySlots = new Map(newAvailability[dayKey]);
-        daySlots.delete(hour);
-        newAvailability[dayKey] = daySlots;
-        return newAvailability;
-      });
-      setIsDirty(true);
-    }
+    // Simply close the time picker without making any changes
+    setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
+  };
+
+  // Handle removing a time slot
+  const handleTimePickerRemove = (day: string, hour: number) => {
+    const dayKey = day.toLowerCase();
+    const timePickerKey = `${dayKey}-${hour}`;
     
-    // Close time picker
+    // Remove the time slot from availability
+    setAvailability(prev => {
+      const newAvailability = { ...prev };
+      const daySlots = new Map(newAvailability[dayKey]);
+      daySlots.delete(hour);
+      newAvailability[dayKey] = daySlots;
+      return newAvailability;
+    });
+    setIsDirty(true);
+    
+    // Close the time picker
     setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
   };
 
@@ -328,6 +327,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                         initialTimeRange={timeRange || undefined}
                         onSave={(range) => handleTimePickerSave(day, hour, range)}
                         onCancel={() => handleTimePickerCancel(day, hour)}
+                        onRemove={() => handleTimePickerRemove(day, hour)}
                         open={isTimePickerOpen}
                         onOpenChange={(open) => {
                           setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: open }));
@@ -400,6 +400,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                               initialTimeRange={timeRange || undefined}
                               onSave={(range) => handleTimePickerSave(day, hour, range)}
                               onCancel={() => handleTimePickerCancel(day, hour)}
+                              onRemove={() => handleTimePickerRemove(day, hour)}
                               open={isTimePickerOpen}
                               onOpenChange={(open) => {
                                 setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: open }));
