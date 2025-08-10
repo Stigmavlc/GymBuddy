@@ -63,6 +63,14 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
   const [isDirty, setIsDirty] = useState(false);
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
   const [openTimePickers, setOpenTimePickers] = useState<{[key: string]: boolean}>({});
+  
+  // Debug toggle for detailed logging
+  const DEBUG_TIMEPICKER = process.env.NODE_ENV === 'development';
+  const debugLog = (message: string, data?: any) => {
+    if (DEBUG_TIMEPICKER) {
+      console.log(`[AvailabilityCalendar] ${message}`, data || '');
+    }
+  };
 
   // Manage availability based on week - only show saved availability for current week
   useEffect(() => {
@@ -93,21 +101,46 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     const timePickerKey = `${dayKey}-${hour}`;
     const currentTimeRange = availability[dayKey].get(hour);
     
+    debugLog(`Hour click: ${timePickerKey}`, {
+      currentTimeRange,
+      currentOpenState: openTimePickers[timePickerKey],
+      allOpenPickers: Object.keys(openTimePickers).filter(key => openTimePickers[key])
+    });
+    
     if (currentTimeRange === null) {
       // Full hour slot exists - show time picker to modify
-      setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
+      debugLog(`Opening picker for full hour slot: ${timePickerKey}`);
+      setOpenTimePickers(prev => {
+        const newState = { ...prev, [timePickerKey]: true };
+        debugLog(`State after full hour click:`, newState);
+        return newState;
+      });
     } else if (currentTimeRange) {
       // Time range exists - show time picker to modify
-      setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
+      debugLog(`Opening picker for time range: ${timePickerKey}`);
+      setOpenTimePickers(prev => {
+        const newState = { ...prev, [timePickerKey]: true };
+        debugLog(`State after time range click:`, newState);
+        return newState;
+      });
     } else {
       // No slot exists - show time picker to add one
-      setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
+      debugLog(`Opening picker for new slot: ${timePickerKey}`);
+      setOpenTimePickers(prev => {
+        const newState = { ...prev, [timePickerKey]: true };
+        debugLog(`State after new slot click:`, newState);
+        return newState;
+      });
     }
   };
 
   // Handle time picker save
   const handleTimePickerSave = (day: string, hour: number, timeRange: TimeRange) => {
     const dayKey = day.toLowerCase();
+    const timePickerKey = `${dayKey}-${hour}`;
+    
+    debugLog(`Save called: ${timePickerKey}`, { timeRange });
+    
     setAvailability(prev => {
       const newAvailability = { ...prev };
       const daySlots = new Map(newAvailability[dayKey]);
@@ -117,9 +150,8 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     });
     setIsDirty(true);
     
-    // Close time picker
-    const timePickerKey = `${dayKey}-${hour}`;
-    setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
+    // The TimePicker component will handle closing via onOpenChange
+    debugLog(`Save completed, onOpenChange will be called by TimePicker component`);
   };
 
   // Handle time picker cancel
@@ -127,14 +159,22 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     const dayKey = day.toLowerCase();
     const timePickerKey = `${dayKey}-${hour}`;
     
-    // Simply close the time picker without making any changes
-    setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
+    debugLog(`Cancel button clicked: ${timePickerKey}`, {
+      currentOpenState: openTimePickers[timePickerKey],
+      allOpenPickers: Object.keys(openTimePickers).filter(key => openTimePickers[key])
+    });
+    
+    // Close the time picker - the TimePicker component will handle its own onOpenChange
+    // We don't need to set state here as it will be handled by the onOpenChange callback
+    debugLog(`Cancel handled, onOpenChange will be called by TimePicker component`);
   };
 
   // Handle removing a time slot
   const handleTimePickerRemove = (day: string, hour: number) => {
     const dayKey = day.toLowerCase();
     const timePickerKey = `${dayKey}-${hour}`;
+    
+    debugLog(`Remove called: ${timePickerKey}`);
     
     // Remove the time slot from availability
     setAvailability(prev => {
@@ -146,8 +186,8 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     });
     setIsDirty(true);
     
-    // Close the time picker
-    setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
+    // The TimePicker component will handle closing via onOpenChange
+    debugLog(`Remove completed, onOpenChange will be called by TimePicker component`);
   };
 
   const formatTime = (hour: number) => {
@@ -330,7 +370,22 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                         onRemove={() => handleTimePickerRemove(day, hour)}
                         open={isTimePickerOpen}
                         onOpenChange={(open) => {
-                          setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: open }));
+                          debugLog(`Mobile onOpenChange: ${timePickerKey}`, {
+                            newOpenState: open,
+                            currentState: openTimePickers[timePickerKey],
+                            trigger: 'popover-internal'
+                          });
+                          
+                          // Only update state if it's actually changing to prevent redundant updates
+                          if (openTimePickers[timePickerKey] !== open) {
+                            setOpenTimePickers(prev => {
+                              const newState = { ...prev, [timePickerKey]: open };
+                              debugLog(`Mobile state after onOpenChange:`, newState);
+                              return newState;
+                            });
+                          } else {
+                            debugLog(`Mobile onOpenChange: no state change needed`);
+                          }
                         }}
                       >
                         <button
@@ -403,7 +458,22 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                               onRemove={() => handleTimePickerRemove(day, hour)}
                               open={isTimePickerOpen}
                               onOpenChange={(open) => {
-                                setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: open }));
+                                debugLog(`Desktop onOpenChange: ${timePickerKey}`, {
+                                  newOpenState: open,
+                                  currentState: openTimePickers[timePickerKey],
+                                  trigger: 'popover-internal'
+                                });
+                                
+                                // Only update state if it's actually changing to prevent redundant updates
+                                if (openTimePickers[timePickerKey] !== open) {
+                                  setOpenTimePickers(prev => {
+                                    const newState = { ...prev, [timePickerKey]: open };
+                                    debugLog(`Desktop state after onOpenChange:`, newState);
+                                    return newState;
+                                  });
+                                } else {
+                                  debugLog(`Desktop onOpenChange: no state change needed`);
+                                }
                               }}
                             >
                               <div

@@ -43,6 +43,15 @@ export function TimePicker({
   open,
   onOpenChange
 }: TimePickerProps) {
+  // Debug toggle for detailed logging
+  const DEBUG_TIMEPICKER = process.env.NODE_ENV === 'development';
+  const debugLog = (message: string, data?: any) => {
+    if (DEBUG_TIMEPICKER) {
+      console.log(`[TimePicker-${hour}] ${message}`, data || '');
+    }
+  };
+  
+  debugLog(`Component rendered`, { open, initialTimeRange });
   const [startMinute, setStartMinute] = useState<number>(
     initialTimeRange?.startMinute ?? 0
   )
@@ -103,10 +112,21 @@ export function TimePicker({
 
   // Reset to initial values when popover opens
   useEffect(() => {
+    debugLog('Open state changed', { 
+      open, 
+      initialTimeRange, 
+      willReset: open && initialTimeRange 
+    });
+    
     if (open && initialTimeRange) {
-      setStartMinute(initialTimeRange.startMinute)
-      setEndMinute(initialTimeRange.endMinute)
-      setEndHour(hour + Math.floor(initialTimeRange.duration / 60))
+      debugLog('Resetting time picker values', {
+        startMinute: initialTimeRange.startMinute,
+        endMinute: initialTimeRange.endMinute,
+        endHour: hour + Math.floor(initialTimeRange.duration / 60)
+      });
+      setStartMinute(initialTimeRange.startMinute);
+      setEndMinute(initialTimeRange.endMinute);
+      setEndHour(hour + Math.floor(initialTimeRange.duration / 60));
     }
   }, [open, initialTimeRange, hour])
 
@@ -114,21 +134,28 @@ export function TimePicker({
   const isValid = duration > 0
 
   const handleSave = () => {
-    if (!isValid) return
+    if (!isValid) {
+      debugLog('Save attempted but time range invalid', { duration });
+      return;
+    }
 
     const timeRange: TimeRange = {
       startMinute,
       endMinute,
       duration
-    }
-
-    onSave(timeRange)
-    onOpenChange?.(false)
+    };
+    
+    debugLog('Save button clicked', { timeRange, currentOpen: open });
+    onSave(timeRange);
+    debugLog('onSave callback completed, calling onOpenChange(false)');
+    onOpenChange?.(false);
   }
 
   const handleCancel = () => {
-    onCancel()
-    onOpenChange?.(false)
+    debugLog('Cancel button clicked', { currentOpen: open });
+    onCancel();
+    debugLog('onCancel callback completed, calling onOpenChange(false)');
+    onOpenChange?.(false);
   }
 
   return (
@@ -239,8 +266,10 @@ export function TimePicker({
               {initialTimeRange && onRemove && (
                 <Button 
                   onClick={() => {
-                    onRemove()
-                    onOpenChange?.(false)
+                    debugLog('Remove button clicked', { currentOpen: open });
+                    onRemove();
+                    debugLog('onRemove callback completed, calling onOpenChange(false)');
+                    onOpenChange?.(false);
                   }} 
                   variant="destructive" 
                   size="sm"
