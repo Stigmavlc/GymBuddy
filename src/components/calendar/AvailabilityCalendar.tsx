@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +16,7 @@ const HOURS = Array.from({ length: 18 }, (_, i) => i + 6); // 6 AM to 11 PM
 
 interface AvailabilityCalendarProps {
   onSave: (availability: AvailabilityData) => void;
-  initialAvailability?: any;
+  initialAvailability?: AvailabilityData;
 }
 
 export function AvailabilityCalendar({ onSave, initialAvailability }: AvailabilityCalendarProps) {
@@ -31,6 +31,32 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
   
   const [activeTimePicker, setActiveTimePicker] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+
+  // CRITICAL FIX: Handle initialAvailability prop changes
+  useEffect(() => {
+    if (initialAvailability) {
+      console.log('AvailabilityCalendar: Loading initial data:', initialAvailability);
+      
+      // Validate that initialAvailability has the expected structure
+      if (typeof initialAvailability === 'object' && initialAvailability !== null) {
+        const totalSlots = Object.values(initialAvailability).reduce((sum: number, daySlots: any) => 
+          sum + (daySlots instanceof Map ? daySlots.size : 0), 0
+        );
+        console.log('AvailabilityCalendar: Total slots to load:', totalSlots);
+        
+        // Update the availability state with the loaded data
+        setAvailability(initialAvailability);
+        // Reset dirty state since we're loading saved data
+        setIsDirty(false);
+        
+        console.log('AvailabilityCalendar: Successfully loaded initial availability data');
+      } else {
+        console.warn('AvailabilityCalendar: initialAvailability prop has invalid structure:', initialAvailability);
+      }
+    } else {
+      console.log('AvailabilityCalendar: No initial availability data provided');
+    }
+  }, [initialAvailability]);
 
   // Simple event handlers
   const handleHourClick = (day: string, hour: number) => {
