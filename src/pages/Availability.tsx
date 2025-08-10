@@ -7,7 +7,7 @@ import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { whatsappService } from '@/services/whatsappService';
-import { TimeRange } from '@/components/TimePicker';
+import type { TimeRange } from '@/components/TimePicker';
 
 // New TimeSlotData format with precise time ranges
 type TimeSlotData = {
