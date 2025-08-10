@@ -2,35 +2,67 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TimePicker, TimeRange } from '@/components/TimePicker';
 
-type AvailabilityData = {
+type TimeSlotData = {
+  [key: string]: Map<number, TimeRange | null>;
+};
+
+// Legacy support for old Set<number> format
+type LegacyAvailabilityData = {
   [key: string]: Set<number>;
 };
+
+type AvailabilityData = TimeSlotData;
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 interface AvailabilityCalendarProps {
   onSave: (availability: AvailabilityData) => void;
-  initialAvailability?: AvailabilityData;
+  initialAvailability?: AvailabilityData | LegacyAvailabilityData;
 }
 
 export function AvailabilityCalendar({ onSave, initialAvailability }: AvailabilityCalendarProps) {
+  // Helper function to convert legacy Set<number> to Map<number, TimeRange | null>
+  const convertLegacyData = (data: LegacyAvailabilityData | AvailabilityData): AvailabilityData => {
+    const converted: AvailabilityData = {};
+    DAYS.forEach(day => {
+      const dayKey = day.toLowerCase();
+      const dayData = data[dayKey];
+      
+      if (dayData instanceof Set) {
+        // Legacy format - convert Set<number> to Map<number, null>
+        const timeSlots = new Map<number, TimeRange | null>();
+        dayData.forEach(hour => {
+          timeSlots.set(hour, null); // null means full hour slot
+        });
+        converted[dayKey] = timeSlots;
+      } else if (dayData instanceof Map) {
+        // New format - already a Map
+        converted[dayKey] = new Map(dayData);
+      } else {
+        // No data
+        converted[dayKey] = new Map();
+      }
+    });
+    return converted;
+  };
+
   const [availability, setAvailability] = useState<AvailabilityData>(() => {
-    // Initialize with empty sets to prevent phantom selections
+    // Initialize with empty maps
     const initial: AvailabilityData = {};
     DAYS.forEach(day => {
-      initial[day.toLowerCase()] = new Set();
+      initial[day.toLowerCase()] = new Map();
     });
     return initial;
   });
   
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [selectionMode, setSelectionMode] = useState<'add' | 'remove'>('add');
   const [isDirty, setIsDirty] = useState(false);
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
+  const [openTimePickers, setOpenTimePickers] = useState<{[key: string]: boolean}>({});
 
   // Manage availability based on week - only show saved availability for current week
   useEffect(() => {
@@ -39,21 +71,15 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     
     if (currentWeekOffset === 0 && initialAvailability) {
       // Current week - show saved availability from initialAvailability
-      const currentWeekAvailability: AvailabilityData = {};
-      DAYS.forEach(day => {
-        const dayKey = day.toLowerCase();
-        const daySlots = initialAvailability[dayKey];
-        // Ensure we create a new Set from the initial data to prevent reference issues
-        currentWeekAvailability[dayKey] = daySlots ? new Set(daySlots) : new Set();
-      });
-      console.log('AvailabilityCalendar: Setting current week availability:', currentWeekAvailability);
-      setAvailability(currentWeekAvailability);
+      const convertedAvailability = convertLegacyData(initialAvailability);
+      console.log('AvailabilityCalendar: Setting current week availability:', convertedAvailability);
+      setAvailability(convertedAvailability);
       setIsDirty(false);
     } else {
       // Future/past weeks or no initial data - clear all selections
       const clearedAvailability: AvailabilityData = {};
       DAYS.forEach(day => {
-        clearedAvailability[day.toLowerCase()] = new Set();
+        clearedAvailability[day.toLowerCase()] = new Map();
       });
       console.log('AvailabilityCalendar: Clearing availability for non-current week');
       setAvailability(clearedAvailability);
@@ -61,56 +87,95 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     }
   }, [currentWeekOffset, initialAvailability]);
 
-  const handleMouseDown = (day: string, slotIndex: number, e?: React.MouseEvent | React.TouchEvent) => {
-    // Prevent default touch behavior to avoid delays
-    if (e && 'touches' in e) {
-      e.preventDefault();
+  // Handle hour button click to toggle or show time picker
+  const handleHourClick = (day: string, hour: number) => {
+    const dayKey = day.toLowerCase();
+    const timePickerKey = `${dayKey}-${hour}`;
+    const currentTimeRange = availability[dayKey].get(hour);
+    
+    if (currentTimeRange === null) {
+      // Full hour slot exists - remove it or show time picker to modify
+      setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
+    } else if (currentTimeRange) {
+      // Time range exists - show time picker to modify
+      setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: true }));
+    } else {
+      // No slot exists - add full hour slot
+      setAvailability(prev => {
+        const newAvailability = { ...prev };
+        const daySlots = new Map(newAvailability[dayKey]);
+        daySlots.set(hour, null); // null = full hour
+        newAvailability[dayKey] = daySlots;
+        return newAvailability;
+      });
+      setIsDirty(true);
+    }
+  };
+
+  // Handle time picker save
+  const handleTimePickerSave = (day: string, hour: number, timeRange: TimeRange) => {
+    const dayKey = day.toLowerCase();
+    setAvailability(prev => {
+      const newAvailability = { ...prev };
+      const daySlots = new Map(newAvailability[dayKey]);
+      daySlots.set(hour, timeRange);
+      newAvailability[dayKey] = daySlots;
+      return newAvailability;
+    });
+    setIsDirty(true);
+    
+    // Close time picker
+    const timePickerKey = `${dayKey}-${hour}`;
+    setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
+  };
+
+  // Handle time picker cancel/remove
+  const handleTimePickerCancel = (day: string, hour: number) => {
+    const dayKey = day.toLowerCase();
+    const timePickerKey = `${dayKey}-${hour}`;
+    const currentTimeRange = availability[dayKey].get(hour);
+    
+    if (currentTimeRange !== undefined) {
+      // Remove the time slot
+      setAvailability(prev => {
+        const newAvailability = { ...prev };
+        const daySlots = new Map(newAvailability[dayKey]);
+        daySlots.delete(hour);
+        newAvailability[dayKey] = daySlots;
+        return newAvailability;
+      });
+      setIsDirty(true);
     }
     
-    setIsSelecting(true);
-    setIsDirty(true);
-    const dayKey = day.toLowerCase();
-    const isSelected = availability[dayKey].has(slotIndex);
-    setSelectionMode(isSelected ? 'remove' : 'add');
-    
-    setAvailability(prev => {
-      const newAvailability = { ...prev };
-      const daySlots = new Set(newAvailability[dayKey]);
-      if (isSelected) {
-        daySlots.delete(slotIndex);
-      } else {
-        daySlots.add(slotIndex);
-      }
-      newAvailability[dayKey] = daySlots;
-      return newAvailability;
-    });
-  };
-
-  const handleMouseEnter = (day: string, slotIndex: number) => {
-    if (!isSelecting) return;
-    
-    const dayKey = day.toLowerCase();
-    setAvailability(prev => {
-      const newAvailability = { ...prev };
-      const daySlots = new Set(newAvailability[dayKey]);
-      if (selectionMode === 'add') {
-        daySlots.add(slotIndex);
-      } else {
-        daySlots.delete(slotIndex);
-      }
-      newAvailability[dayKey] = daySlots;
-      return newAvailability;
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsSelecting(false);
+    // Close time picker
+    setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: false }));
   };
 
   const formatTime = (hour: number) => {
     const period = hour >= 12 ? 'PM' : 'AM';
     const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
     return `${displayHour}${period}`;
+  };
+
+  // Format time range display for buttons
+  const formatTimeRange = (hour: number, timeRange: TimeRange | null) => {
+    if (!timeRange) {
+      // Full hour slot
+      return formatTime(hour);
+    }
+    
+    const startHour = hour;
+    const startMin = timeRange.startMinute;
+    const endHour = hour + Math.floor(timeRange.duration / 60);
+    const endMin = timeRange.endMinute;
+    
+    const formatTimeWithMinutes = (h: number, m: number) => {
+      const period = h >= 12 ? 'PM' : 'AM';
+      const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
+      return `${displayHour}:${m.toString().padStart(2, '0')}${period}`;
+    };
+    
+    return `${formatTimeWithMinutes(startHour, startMin)}-${formatTimeWithMinutes(endHour, endMin)}`;
   };
 
   const handleSave = () => {
@@ -121,16 +186,17 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
   const handleClear = () => {
     const cleared: AvailabilityData = {};
     DAYS.forEach(day => {
-      cleared[day.toLowerCase()] = new Set();
+      cleared[day.toLowerCase()] = new Map();
     });
     setAvailability(cleared);
     setIsDirty(true);
+    // Close all time pickers
+    setOpenTimePickers({});
   };
 
   const getTotalSlots = () => {
     const total = Object.values(availability).reduce((total, daySlots) => {
-      // Ensure daySlots is a Set and has a size property
-      if (daySlots instanceof Set) {
+      if (daySlots instanceof Map) {
         return total + daySlots.size;
       }
       console.warn('AvailabilityCalendar: Invalid daySlots detected:', daySlots);
@@ -243,31 +309,49 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                     </p>
                   </div>
                   <Badge variant="outline">
-                    {availability[dayKey].size} hours
+                    {availability[dayKey].size} slots
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                   {HOURS.filter(hour => hour >= 6 && hour <= 23).map(hour => {
-                    const isSelected = availability[dayKey].has(hour);
+                    const timeRange = availability[dayKey].get(hour);
+                    const isSelected = timeRange !== undefined;
+                    const timePickerKey = `${dayKey}-${hour}`;
+                    const isTimePickerOpen = openTimePickers[timePickerKey];
+                    
                     return (
-                      <button
+                      <TimePicker
                         key={`${day}-${hour}`}
-                        className={cn(
-                          "p-2 text-xs rounded border transition-all select-none",
-                          isSelected 
-                            ? "bg-primary border-primary text-primary-foreground font-medium" 
-                            : "bg-background border-border hover:bg-muted active:bg-muted"
-                        )}
-                        style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleMouseDown(day, hour, e);
+                        hour={hour}
+                        initialTimeRange={timeRange || undefined}
+                        onSave={(range) => handleTimePickerSave(day, hour, range)}
+                        onCancel={() => handleTimePickerCancel(day, hour)}
+                        open={isTimePickerOpen}
+                        onOpenChange={(open) => {
+                          setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: open }));
                         }}
                       >
-                        {formatTime(hour)}
-                      </button>
+                        <button
+                          className={cn(
+                            "p-2 text-xs rounded border transition-all select-none min-h-[2.5rem] flex flex-col items-center justify-center",
+                            isSelected 
+                              ? "bg-primary border-primary text-primary-foreground font-medium" 
+                              : "bg-background border-border hover:bg-muted active:bg-muted"
+                          )}
+                          style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleHourClick(day, hour);
+                          }}
+                        >
+                          <div className="flex items-center gap-1">
+                            {isSelected && timeRange && <Clock className="h-3 w-3" />}
+                            <span>{formatTimeRange(hour, timeRange)}</span>
+                          </div>
+                        </button>
+                      </TimePicker>
                     );
                   })}
                 </div>
@@ -278,11 +362,11 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
       </div>
 
       {/* Desktop Calendar - Traditional Grid */}
-      <Card className="hidden lg:block" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+      <Card className="hidden lg:block">
         <CardContent className="p-6">
           <div className="space-y-4">
             <div className="text-sm text-muted-foreground">
-              Click and drag to select your available time slots. Each slot represents 1 hour.
+              Click hour slots to set your availability. Click again to set precise times.
             </div>
             
             <div className="overflow-x-auto">
@@ -296,6 +380,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                   ))}
                   
                   {DAYS.map((day) => {
+                    const dayKey = day.toLowerCase();
                     
                     return (
                       <React.Fragment key={day}>
@@ -303,21 +388,38 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                           <div>{day}</div>
                         </div>
                         {HOURS.map(hour => {
-                          const dayKey = day.toLowerCase();
-                          const isSelected = availability[dayKey].has(hour);
+                          const timeRange = availability[dayKey].get(hour);
+                          const isSelected = timeRange !== undefined;
+                          const timePickerKey = `${dayKey}-${hour}`;
+                          const isTimePickerOpen = openTimePickers[timePickerKey];
+                          
                           return (
-                            <div
+                            <TimePicker
                               key={`${day}-${hour}`}
-                              className={cn(
-                                "h-10 border rounded cursor-pointer transition-all select-none",
-                                isSelected 
-                                  ? "bg-primary border-primary text-primary-foreground" 
-                                  : "bg-background border-border hover:bg-muted"
-                              )}
-                              style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
-                              onMouseDown={(e) => handleMouseDown(day, hour, e)}
-                              onMouseEnter={() => handleMouseEnter(day, hour)}
-                            />
+                              hour={hour}
+                              initialTimeRange={timeRange || undefined}
+                              onSave={(range) => handleTimePickerSave(day, hour, range)}
+                              onCancel={() => handleTimePickerCancel(day, hour)}
+                              open={isTimePickerOpen}
+                              onOpenChange={(open) => {
+                                setOpenTimePickers(prev => ({ ...prev, [timePickerKey]: open }));
+                              }}
+                            >
+                              <div
+                                className={cn(
+                                  "h-10 border rounded cursor-pointer transition-all select-none flex items-center justify-center",
+                                  isSelected 
+                                    ? "bg-primary border-primary text-primary-foreground" 
+                                    : "bg-background border-border hover:bg-muted"
+                                )}
+                                style={{ touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+                                onClick={() => handleHourClick(day, hour)}
+                              >
+                                {isSelected && timeRange && (
+                                  <Clock className="h-3 w-3" />
+                                )}
+                              </div>
+                            </TimePicker>
                           );
                         })}
                       </React.Fragment>

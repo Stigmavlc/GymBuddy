@@ -7,10 +7,19 @@ import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { whatsappService } from '@/services/whatsappService';
+import { TimeRange } from '@/components/TimePicker';
 
-type AvailabilityData = {
+// New TimeSlotData format with precise time ranges
+type TimeSlotData = {
+  [key: string]: Map<number, TimeRange | null>;
+};
+
+// Legacy format for backward compatibility
+type LegacyAvailabilityData = {
   [key: string]: Set<number>;
 };
+
+type AvailabilityData = TimeSlotData;
 
 export function Availability() {
   const { user, profile } = useAuth();
@@ -88,7 +97,7 @@ export function Availability() {
       // Always start with clean empty availability
       const availability: AvailabilityData = {};
       DAYS.forEach(day => {
-        availability[day.toLowerCase()] = new Set();
+        availability[day.toLowerCase()] = new Map();
       });
 
       // Only process data if it exists and has valid entries
@@ -109,21 +118,22 @@ export function Availability() {
             return;
           }
           
-          // Add hours for this slot (ensuring valid range)
+          // Convert database format to TimeSlotData format
+          // For now, convert to legacy hourly slots (null TimeRange means full hour)
           const startHour = Math.max(0, Math.min(23, slot.start_time));
           const endHour = Math.max(startHour + 1, Math.min(24, slot.end_time));
           
           for (let hour = startHour; hour < endHour; hour++) {
-            availability[dayKey].add(hour);
+            availability[dayKey].set(hour, null); // null = full hour slot
           }
         });
         
         // Log final availability for debugging
-        const totalSlots = Object.values(availability).reduce((sum, daySet) => sum + daySet.size, 0);
+        const totalSlots = Object.values(availability).reduce((sum, dayMap) => sum + dayMap.size, 0);
         console.log('Final loaded availability - total slots:', totalSlots);
         Object.entries(availability).forEach(([day, slots]) => {
           if (slots.size > 0) {
-            console.log(`${day}: ${slots.size} slots`, Array.from(slots).sort());
+            console.log(`${day}: ${slots.size} slots`, Array.from(slots.keys()).sort());
           }
         });
       } else {
@@ -136,7 +146,7 @@ export function Availability() {
       // Initialize with clean empty availability on error
       const emptyAvailability: AvailabilityData = {};
       DAYS.forEach(day => {
-        emptyAvailability[day.toLowerCase()] = new Set();
+        emptyAvailability[day.toLowerCase()] = new Map();
       });
       setInitialAvailability(emptyAvailability);
     } finally {
@@ -190,38 +200,39 @@ export function Availability() {
       }
       const slots: AvailabilitySlot[] = [];
       
-      Object.entries(availability).forEach(([day, hours]) => {
-        if (hours.size === 0) return;
+      Object.entries(availability).forEach(([day, timeSlots]) => {
+        if (timeSlots.size === 0) return;
         
-        // Convert Set to sorted array
-        const sortedHours = Array.from(hours).sort((a, b) => a - b);
+        // Convert Map to sorted array of hours
+        const sortedHours = Array.from(timeSlots.keys()).sort((a, b) => a - b);
         
-        // Group consecutive hours
-        let start = sortedHours[0];
-        let end = start + 1;
-        
-        for (let i = 1; i < sortedHours.length; i++) {
-          if (sortedHours[i] === end) {
-            end++;
-          } else {
+        // For now, convert TimeRange slots to database format
+        // Future: we could store precise times in a separate column
+        for (const hour of sortedHours) {
+          const timeRange = timeSlots.get(hour);
+          
+          if (timeRange === null) {
+            // Full hour slot - store as hour to hour+1
             slots.push({
               user_id: user.id,
               day,
-              start_time: start,
-              end_time: end
+              start_time: hour,
+              end_time: hour + 1
             });
-            start = sortedHours[i];
-            end = start + 1;
+          } else if (timeRange) {
+            // Precise time range - convert to database 30-minute slot format
+            // For now, still store as full hours but could be enhanced
+            const startHour = hour;
+            const endHour = hour + Math.ceil(timeRange.duration / 60);
+            
+            slots.push({
+              user_id: user.id,
+              day,
+              start_time: startHour,
+              end_time: Math.min(24, endHour) // Cap at 24
+            });
           }
         }
-        
-        // Push the last group
-        slots.push({
-          user_id: user.id,
-          day,
-          start_time: start,
-          end_time: end
-        });
       });
 
       console.log('Slots to save:', slots);

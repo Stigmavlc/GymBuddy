@@ -17,15 +17,15 @@ const TestWhatsApp = lazy(() => import('@/pages/TestWhatsApp').then(module => ({
 const CreateTestUser = lazy(() => import('@/pages/CreateTestUser').then(module => ({ default: module.CreateTestUser })));
 
 function AppContent() {
-  const { user, loading, error } = useAuth();
+  const { user, loading, error, justLoggedIn, clearJustLoggedIn } = useAuth();
   const [showSplash, setShowSplash] = useState(false);
 
-  // Show splash when user becomes authenticated - every time they log in
+  // Show splash only when user just logged in (not on session restoration)
   useEffect(() => {
-    if (user && !loading) {
+    if (justLoggedIn && user && !loading) {
       setShowSplash(true);
     }
-  }, [user, loading]);
+  }, [justLoggedIn, user, loading]);
 
   if (loading) {
     return (
@@ -71,6 +71,7 @@ function AppContent() {
       <WelcomeSplash 
         onComplete={() => {
           setShowSplash(false);
+          clearJustLoggedIn();
         }} 
       />
     );

@@ -73,8 +73,8 @@ export const authService = {
     // Only allow Ivan, Youssef, and test account to use this app
     const allowedEmails = [
       'ivanaguilarmari@gmail.com',
-      'youssef.dummy@test.com', // Test account for Youssef
-      // TODO: Add real Youssef's email here when available
+      'youssef.gaber222@gmail.com', // Youssef's real email
+      'youssef.dummy@test.com', // Test account for Youssef (keeping for backwards compatibility)
     ];
     
     if (!allowedEmails.includes(email.toLowerCase())) {
@@ -110,8 +110,8 @@ export const authService = {
     // Only allow Ivan, Youssef, and test account to use this app
     const allowedEmails = [
       'ivanaguilarmari@gmail.com',
-      'youssef.dummy@test.com', // Test account for Youssef
-      // TODO: Add real Youssef's email here when available
+      'youssef.gaber222@gmail.com', // Youssef's real email
+      'youssef.dummy@test.com', // Test account for Youssef (keeping for backwards compatibility)
     ];
     
     if (!allowedEmails.includes(email.toLowerCase())) {

@@ -8,6 +8,7 @@ interface AuthState {
   profile: User | null
   loading: boolean
   error: string | null
+  justLoggedIn: boolean
 }
 
 export function useAuth() {
@@ -15,7 +16,8 @@ export function useAuth() {
     user: null,
     profile: null,
     loading: true,
-    error: null
+    error: null,
+    justLoggedIn: false
   })
 
   useEffect(() => {
@@ -33,18 +35,21 @@ export function useAuth() {
           
           if (!mounted) return;
           
+          // Session restoration - don't trigger splash
           setState({
             user: session.user,
             profile,
             loading: false,
-            error: null
+            error: null,
+            justLoggedIn: false
           })
         } else {
           setState({
             user: null,
             profile: null,
             loading: false,
-            error: null
+            error: null,
+            justLoggedIn: false
           })
         }
       } catch (error) {
@@ -56,7 +61,8 @@ export function useAuth() {
           user: null,
           profile: null,
           loading: false,
-          error: error instanceof Error ? error.message : 'An error occurred'
+          error: error instanceof Error ? error.message : 'An error occurred',
+          justLoggedIn: false
         })
       }
     }
@@ -89,7 +95,8 @@ export function useAuth() {
               user: session.user,
               profile,
               loading: false,
-              error: null
+              error: null,
+              justLoggedIn: event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED'
             })
             console.log('Auth listener: State updated successfully')
           } else {
@@ -98,7 +105,8 @@ export function useAuth() {
               user: null,
               profile: null,
               loading: false,
-              error: null
+              error: null,
+              justLoggedIn: false
             })
           }
         } catch (error) {
@@ -107,7 +115,8 @@ export function useAuth() {
             user: null,
             profile: null,
             loading: false,
-            error: error instanceof Error ? error.message : 'An error occurred'
+            error: error instanceof Error ? error.message : 'An error occurred',
+            justLoggedIn: false
           })
         }
       }
@@ -128,7 +137,8 @@ export function useAuth() {
       setState(prev => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Sign up failed'
+        error: error instanceof Error ? error.message : 'Sign up failed',
+        justLoggedIn: false
       }))
       throw error
     }
@@ -146,7 +156,8 @@ export function useAuth() {
       setState(prev => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Sign in failed'
+        error: error instanceof Error ? error.message : 'Sign in failed',
+        justLoggedIn: false
       }))
       throw error
     }
@@ -161,7 +172,8 @@ export function useAuth() {
       setState(prev => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Google sign in failed'
+        error: error instanceof Error ? error.message : 'Google sign in failed',
+        justLoggedIn: false
       }))
       throw error
     }
@@ -176,7 +188,8 @@ export function useAuth() {
       setState(prev => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Sign out failed'
+        error: error instanceof Error ? error.message : 'Sign out failed',
+        justLoggedIn: false
       }))
       throw error
     }
@@ -199,10 +212,15 @@ export function useAuth() {
       setState(prev => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Profile update failed'
+        error: error instanceof Error ? error.message : 'Profile update failed',
+        justLoggedIn: false
       }))
       throw error
     }
+  }
+
+  const clearJustLoggedIn = () => {
+    setState(prev => ({ ...prev, justLoggedIn: false }))
   }
 
   return {
@@ -212,6 +230,7 @@ export function useAuth() {
     signInWithGoogle,
     signOut,
     updateProfile,
+    clearJustLoggedIn,
     isAuthenticated: !!state.user
   }
 }
