@@ -14,6 +14,7 @@
 
 const TelegramBot = require('node-telegram-bot-api');
 const GymBuddyAPIService = require('./apiService');
+const PartnerCoordinationBot = require('./partner_coordination_bot');
 const http = require('http');
 
 class GymBuddyTelegramBot {
@@ -25,6 +26,7 @@ class GymBuddyTelegramBot {
         // Initialize services
         this.bot = new TelegramBot(this.botToken, { polling: true });
         this.apiService = new GymBuddyAPIService();
+        this.partnerBot = new PartnerCoordinationBot(this.bot, this.apiService, this.debugMode);
         
         // User context storage for conversation flow
         this.userContexts = new Map();
@@ -42,6 +44,7 @@ class GymBuddyTelegramBot {
                 availability_update: 0,
                 availability_query: 0,
                 availability_clear: 0,
+                partner_coordination: 0,
                 session_deletion: 0,
                 general_chat: 0
             },
@@ -69,6 +72,19 @@ class GymBuddyTelegramBot {
             } catch (error) {
                 console.error('[Bot Error] Message handling failed:', error);
                 await this.sendErrorMessage(msg.chat.id, 'Sorry, I encountered an error processing your message.');
+            }
+        });
+
+        // Handle callback queries (for partner coordination buttons)
+        this.bot.on('callback_query', async (callbackQuery) => {
+            try {
+                const handled = await this.partnerBot.handleCallbackQuery(callbackQuery);
+                if (!handled) {
+                    // Handle other callback queries here if needed
+                    console.log('[Bot] Unhandled callback query:', callbackQuery.data);
+                }
+            } catch (error) {
+                console.error('[Bot Error] Callback query handling failed:', error);
             }
         });
 
@@ -425,6 +441,7 @@ I'm also here for workout tips, motivation, and general fitness chat!
 • Availability updates: ${stats.intentRouting.availability_update}
 • Availability queries: ${stats.intentRouting.availability_query}
 • Availability clears: ${stats.intentRouting.availability_clear}
+• Partner coordination: ${stats.intentRouting.partner_coordination}
 • Session deletions: ${stats.intentRouting.session_deletion}
 • General chat: ${stats.intentRouting.general_chat}
 
@@ -575,6 +592,12 @@ The test created and deleted a temporary availability slot to verify real-time s
                     this.conversationTracker.directProcessing++;
                     console.log('[ROUTING] → Direct processing: Availability Update');
                     await this.handleAvailabilityUpdate(msg, user, messageText);
+                    return;
+                    
+                case 'partner_coordination':
+                    this.conversationTracker.directProcessing++;
+                    console.log('[ROUTING] → Direct processing: Partner Coordination');
+                    await this.partnerBot.processCoordinationRequest(msg);
                     return;
                     
                 case 'availability_query':
@@ -732,14 +755,23 @@ Respond to this general conversation message. Focus on fitness motivation and ad
             return { type: 'availability_update', confidence: 'high' };
         }
         
+        // Check for partner coordination intent
+        if (this.partnerBot.shouldHandleMessage(text)) {
+            return { type: 'partner_coordination', confidence: 'high' };
+        }
+        
         // Check for availability query intent (after update check to avoid conflicts)
         const queryKeywords = [
             'what\'s my availability',
+            'whats my availability',     // Handle missing apostrophe
             'show my availability',
             'my schedule',
             'when am i available',
             'what\'s my schedule',
-            'check my availability'
+            'whats my schedule',         // Handle missing apostrophe
+            'check my availability',
+            'view my availability',      // Additional common variation
+            'see my availability'        // Additional common variation
         ];
         
         if (queryKeywords.some(keyword => text.includes(keyword))) {
@@ -1049,10 +1081,96 @@ Respond to this general conversation message. Focus on fitness motivation and ad
                 return;
             }
             
-            console.log('[SESSION DEBUG] Found sessions, preparing list...');
+            console.log('[SESSION DEBUG] Found sessions, trying natural language parsing first...');
             
-            // For now, show what sessions exist and ask for confirmation
-            // TODO: Parse which specific session to delete from messageText
+            // TRY NATURAL LANGUAGE PARSING FROM ORIGINAL MESSAGE FIRST
+            const parsedCriteria = this.parseSessionFromNaturalLanguage(messageText);
+            this.debugLog('Parsed session criteria:', parsedCriteria);
+            
+            if (parsedCriteria) {
+                const matchResult = this.matchSessionToCriteria(parsedCriteria, sessions);
+                this.debugLog('Session matching result:', matchResult);
+                
+                if (matchResult.exactMatches.length === 1) {
+                    // Found exactly one match - delete it directly
+                    const session = matchResult.exactMatches[0];
+                    const dayName = session.day.charAt(0).toUpperCase() + session.day.slice(1);
+                    
+                    await this.bot.sendMessage(chatId, 
+                        `🎯 Found your session: ${dayName} ${session.start_time}:00-${session.end_time}:00\n🗑️ Canceling it now...`
+                    );
+                    
+                    const result = await this.apiService.deleteUserSession(telegramId, session.id);
+                    
+                    if (result.success) {
+                        await this.bot.sendMessage(chatId, 
+                            `✅ Session canceled successfully!\n\n🔄 Your website will update automatically.`
+                        );
+                    } else {
+                        await this.sendErrorMessage(chatId, `Failed to cancel session: ${result.error}`);
+                    }
+                    return;
+                } else if (matchResult.exactMatches.length > 1) {
+                    // Multiple exact matches - show them specifically
+                    let message = `🔍 Found ${matchResult.exactMatches.length} sessions matching "${parsedCriteria.day || 'any day'} ${parsedCriteria.startTime || '?'}:00-${parsedCriteria.endTime || '?'}:00":\n\n`;
+                    
+                    matchResult.exactMatches.forEach((session, index) => {
+                        const dayName = session.day.charAt(0).toUpperCase() + session.day.slice(1);
+                        message += `${index + 1}. ${dayName} ${session.start_time}:00-${session.end_time}:00\n`;
+                    });
+                    
+                    message += `\n❓ Which one would you like to cancel? Reply with the number.`;
+                    
+                    await this.bot.sendMessage(chatId, message);
+                    
+                    // Store context for follow-up with exact matches only
+                    this.userContexts.set(telegramId, {
+                        waitingForSessionChoice: true,
+                        availableSessions: matchResult.exactMatches,
+                        originalRequest: messageText,
+                        parsedCriteria: parsedCriteria,
+                        timestamp: Date.now()
+                    });
+                    return;
+                } else if (matchResult.partialMatches.length > 0) {
+                    // Partial matches - show them with explanation
+                    let message = `🤔 Found ${matchResult.partialMatches.length} sessions that partially match:\n\n`;
+                    
+                    matchResult.partialMatches.forEach((session, index) => {
+                        const dayName = session.day.charAt(0).toUpperCase() + session.day.slice(1);
+                        message += `${index + 1}. ${dayName} ${session.start_time}:00-${session.end_time}:00\n`;
+                    });
+                    
+                    message += `\n❓ Is one of these the session you meant? Reply with the number.`;
+                    
+                    await this.bot.sendMessage(chatId, message);
+                    
+                    // Store context for follow-up with partial matches
+                    this.userContexts.set(telegramId, {
+                        waitingForSessionChoice: true,
+                        availableSessions: matchResult.partialMatches,
+                        originalRequest: messageText,
+                        parsedCriteria: parsedCriteria,
+                        timestamp: Date.now()
+                    });
+                    return;
+                } else {
+                    // No matches found - fall through to show all sessions
+                    console.log('[SESSION DEBUG] No matches found, falling back to full session list');
+                    const criteriaStr = parsedCriteria.day ? 
+                        `${parsedCriteria.day} ${parsedCriteria.startTime || '?'}:00-${parsedCriteria.endTime || '?'}:00` : 
+                        'your criteria';
+                    
+                    await this.bot.sendMessage(chatId, 
+                        `🔍 No sessions found matching "${criteriaStr}". Here are all your sessions:`
+                    );
+                }
+            } else {
+                console.log('[SESSION DEBUG] No natural language parsing successful, showing all sessions');
+            }
+            
+            // FALLBACK: Show all sessions with numbered list
+            console.log('[SESSION DEBUG] Showing full session list...');
             let sessionsList = `📋 Your confirmed sessions:\n\n`;
             
             sessions.forEach((session, index) => {
@@ -1116,7 +1234,7 @@ Respond to this general conversation message. Focus on fitness motivation and ad
     }
     
     /**
-     * Handle session choice when user replies with a number
+     * Handle session choice when user replies with a number or natural language
      */
     async handleSessionChoice(msg, context, messageText) {
         const chatId = msg.chat.id;
@@ -1127,7 +1245,60 @@ Respond to this general conversation message. Focus on fitness motivation and ad
         this.debugLog('Available sessions:', context.availableSessions);
         
         try {
-            // Parse the user's choice
+            // FIRST: Try to parse natural language from the user's reply
+            const parsedCriteria = this.parseSessionFromNaturalLanguage(messageText);
+            this.debugLog('Parsed criteria from user reply:', parsedCriteria);
+            
+            if (parsedCriteria) {
+                // Try to match against available sessions
+                const matchResult = this.matchSessionToCriteria(parsedCriteria, context.availableSessions);
+                this.debugLog('Match result for user reply:', matchResult);
+                
+                if (matchResult.exactMatches.length === 1) {
+                    // Found exactly one match - delete it directly
+                    const session = matchResult.exactMatches[0];
+                    const dayName = session.day.charAt(0).toUpperCase() + session.day.slice(1);
+                    
+                    await this.bot.sendMessage(chatId, 
+                        `🎯 Got it! Canceling ${dayName} ${session.start_time}:00-${session.end_time}:00...`
+                    );
+                    
+                    const result = await this.apiService.deleteUserSession(telegramId, session.id);
+                    
+                    if (result.success) {
+                        await this.bot.sendMessage(chatId, 
+                            `✅ Session canceled successfully!\n\n🔄 Your website will update automatically.`
+                        );
+                    } else {
+                        await this.sendErrorMessage(chatId, `Failed to cancel session: ${result.error}`);
+                    }
+                    return;
+                } else if (matchResult.exactMatches.length > 1) {
+                    // Multiple matches - show specific options
+                    let message = `🔍 Found ${matchResult.exactMatches.length} sessions matching your description:\n\n`;
+                    
+                    matchResult.exactMatches.forEach((session, index) => {
+                        const dayName = session.day.charAt(0).toUpperCase() + session.day.slice(1);
+                        message += `${index + 1}. ${dayName} ${session.start_time}:00-${session.end_time}:00\n`;
+                    });
+                    
+                    message += `\n❓ Which one? Reply with the number.`;
+                    
+                    await this.bot.sendMessage(chatId, message);
+                    
+                    // Update context with exact matches
+                    this.userContexts.set(telegramId, {
+                        ...context,
+                        availableSessions: matchResult.exactMatches
+                    });
+                    return; // Keep waiting for selection
+                }
+                
+                // If partial matches or no matches, fall through to numeric parsing
+                this.debugLog('No exact match found, trying numeric parsing...');
+            }
+            
+            // FALLBACK: Parse as numeric choice (original behavior)
             const choiceText = messageText.trim();
             const choiceNumber = parseInt(choiceText);
             
@@ -1136,7 +1307,7 @@ Respond to this general conversation message. Focus on fitness motivation and ad
             // Validate the choice
             if (isNaN(choiceNumber) || choiceNumber < 1 || choiceNumber > context.availableSessions.length) {
                 await this.bot.sendMessage(chatId, 
-                    `❌ Please enter a valid number between 1 and ${context.availableSessions.length}.`
+                    `❌ Please enter a valid number between 1 and ${context.availableSessions.length}, or describe the session (e.g., "Monday 7-9").`
                 );
                 return; // Keep waiting for valid choice
             }
@@ -1236,6 +1407,25 @@ Respond to this general conversation message. Focus on fitness motivation and ad
                     `✅ Got it! Added ${slotsText} to your schedule.\n\n` +
                     `🔄 Synced with website.`
                 );
+
+                // PARTNER COORDINATION: Check if this triggers coordination
+                try {
+                    this.debugLog('Checking for partner coordination trigger...');
+                    const userEmail = await this.getUserEmail(msg.from.id);
+                    if (userEmail) {
+                        const coordinationTriggered = await this.partnerBot.checkForCoordinationTrigger(userEmail);
+                        if (coordinationTriggered) {
+                            console.log(`[PartnerBot] Coordination workflow triggered for ${userEmail}`);
+                        } else {
+                            this.debugLog('No coordination trigger - partner may not have availability yet');
+                        }
+                    } else {
+                        this.debugLog('No user email found for coordination check');
+                    }
+                } catch (partnerError) {
+                    console.error('[PartnerBot] Error checking coordination trigger:', partnerError);
+                    // Don't fail the availability update if partner coordination fails
+                }
             } else {
                 // Provide more specific error feedback
                 let errorMessage = '❌ Failed to update availability.';
@@ -1291,13 +1481,225 @@ Respond to this general conversation message. Focus on fitness motivation and ad
     }
     
     /**
+     * Parse session criteria from natural language text
+     * Similar to parseAvailabilityFromText but returns criteria for matching existing sessions
+     */
+    parseSessionFromNaturalLanguage(text) {
+        this.debugLog('Parsing session criteria from text:', text);
+        
+        const normalizedText = text.toLowerCase().trim();
+        
+        // Enhanced day mapping with better detection
+        const dayMap = {
+            'monday': 'monday', 'mon': 'monday',
+            'tuesday': 'tuesday', 'tue': 'tuesday', 'tues': 'tuesday',
+            'wednesday': 'wednesday', 'wed': 'wednesday',
+            'thursday': 'thursday', 'thu': 'thursday', 'thurs': 'thursday',
+            'friday': 'friday', 'fri': 'friday',
+            'saturday': 'saturday', 'sat': 'saturday',
+            'sunday': 'sunday', 'sun': 'sunday'
+        };
+        
+        // Find target day (optional - user might just say "7-9")
+        let targetDay = null;
+        for (const [key, day] of Object.entries(dayMap)) {
+            const regex = new RegExp(`\\b${key}\\b`, 'i');
+            if (regex.test(normalizedText)) {
+                targetDay = day;
+                break;
+            }
+        }
+        
+        // Handle relative references
+        if (!targetDay) {
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            
+            if (normalizedText.includes('tomorrow')) {
+                const tomorrowDay = (dayOfWeek + 1) % 7;
+                const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                targetDay = dayNames[tomorrowDay];
+            } else if (normalizedText.includes('today')) {
+                const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                targetDay = dayNames[dayOfWeek];
+            }
+        }
+        
+        this.debugLog('Target day found:', targetDay);
+        
+        // Parse time ranges (reuse existing patterns) - FIXED to include 'and'
+        const timePatterns = [
+            // "9 to 11am", "9-11am", "9 and 11am" (FIXED: added 'and')
+            /(\d{1,2})\s*(?:to|-|until|and)\s*(\d{1,2})\s*(am|pm)/gi,
+            // "9am to 11am", "9am-11am", "9am and 11am" (FIXED: added 'and')
+            /(\d{1,2})\s*(am|pm)\s*(?:to|-|until|and)\s*(\d{1,2})\s*(am|pm)/gi,
+            // "09:00 to 11:00", "9:00-11:00"
+            /(\d{1,2}):(\d{2})\s*(?:to|-|until)\s*(\d{1,2}):(\d{2})/gi,
+            // "from 9am to 11am"
+            /from\s+(\d{1,2})\s*(am|pm)\s+to\s+(\d{1,2})\s*(am|pm)/gi,
+            // "at 9am" - single time
+            /at\s+(\d{1,2})\s*(am|pm)/gi,
+            // "9am" - single time
+            /\b(\d{1,2})\s*(am|pm)\b/gi,
+            // "morning", "afternoon", "evening"
+            /(morning|afternoon|evening)/gi
+        ];
+        
+        let startTime = null;
+        let endTime = null;
+        
+        for (const pattern of timePatterns) {
+            pattern.lastIndex = 0;
+            const timeMatch = pattern.exec(normalizedText);
+            if (timeMatch) {
+                this.debugLog('Time pattern matched:', timeMatch);
+                
+                if (timeMatch.length === 4 && timeMatch[3]) { // "9 to 11am"
+                    startTime = this.parseTime(timeMatch[1], timeMatch[3]);
+                    endTime = this.parseTime(timeMatch[2], timeMatch[3]);
+                } else if (timeMatch.length === 5 && timeMatch[2] && timeMatch[4]) { // "9am to 11am"
+                    startTime = this.parseTime(timeMatch[1], timeMatch[2]);
+                    endTime = this.parseTime(timeMatch[3], timeMatch[4]);
+                } else if (timeMatch.length === 5 && timeMatch[2] && timeMatch[4] && timeMatch[2] !== 'am' && timeMatch[2] !== 'pm') { // "09:00 to 11:00"
+                    const potentialStartTime = parseInt(timeMatch[1]);
+                    const potentialEndTime = parseInt(timeMatch[3]);
+                    
+                    if (potentialStartTime >= 0 && potentialStartTime <= 23 && 
+                        potentialEndTime >= 1 && potentialEndTime <= 23 &&
+                        potentialStartTime < potentialEndTime) {
+                        startTime = potentialStartTime;
+                        endTime = potentialEndTime;
+                    }
+                } else if (timeMatch.length === 3 && timeMatch[2] && (timeMatch[2] === 'am' || timeMatch[2] === 'pm')) { // "at 9am" or "9am"
+                    startTime = this.parseTime(timeMatch[1], timeMatch[2]);
+                    endTime = startTime + 2; // Assume 2-hour duration for single times
+                    if (endTime > 23) endTime = 23;
+                } else if (timeMatch.length === 4 && timeMatch[3] === undefined && timeMatch[2]) { // "7-9" without am/pm
+                    const potentialStartTime = parseInt(timeMatch[1]);
+                    const potentialEndTime = parseInt(timeMatch[2]);
+                    
+                    // Default to reasonable hours (6am-11pm range)
+                    if (potentialStartTime >= 6 && potentialStartTime <= 23 && 
+                        potentialEndTime >= 7 && potentialEndTime <= 23 &&
+                        potentialStartTime < potentialEndTime) {
+                        startTime = potentialStartTime;
+                        endTime = potentialEndTime;
+                    }
+                } else if (timeMatch.length === 2) { // "morning", "afternoon", "evening"
+                    const timeOfDay = timeMatch[1].toLowerCase();
+                    switch (timeOfDay) {
+                        case 'morning':
+                            startTime = 9; endTime = 12; break;
+                        case 'afternoon':
+                            startTime = 14; endTime = 17; break;
+                        case 'evening':
+                            startTime = 18; endTime = 21; break;
+                    }
+                }
+                
+                if (startTime !== null && endTime !== null) {
+                    break;
+                }
+            }
+        }
+        
+        this.debugLog('Parsed session criteria:', { day: targetDay, startTime, endTime });
+        
+        // Return criteria object (day is optional, times are optional)
+        if (targetDay || (startTime !== null && endTime !== null)) {
+            return {
+                day: targetDay,
+                startTime: startTime,
+                endTime: endTime
+            };
+        }
+        
+        return null; // No criteria found
+    }
+    
+    /**
+     * Match session criteria against actual user sessions
+     * Returns exact matches and partial matches
+     */
+    matchSessionToCriteria(criteria, sessions) {
+        this.debugLog('Matching criteria against sessions:', { criteria, sessionCount: sessions.length });
+        
+        if (!criteria || !sessions || sessions.length === 0) {
+            return { exactMatches: [], partialMatches: [] };
+        }
+        
+        const exactMatches = [];
+        const partialMatches = [];
+        
+        sessions.forEach(session => {
+            let dayMatch = false;
+            let timeMatch = false;
+            
+            // Check day match
+            if (!criteria.day) {
+                dayMatch = true; // No day criteria means any day matches
+            } else {
+                dayMatch = session.day.toLowerCase() === criteria.day.toLowerCase();
+            }
+            
+            // Check time match
+            if (!criteria.startTime || !criteria.endTime) {
+                timeMatch = true; // No time criteria means any time matches
+            } else {
+                // Exact time match
+                if (session.start_time === criteria.startTime && session.end_time === criteria.endTime) {
+                    timeMatch = true;
+                } else {
+                    // Allow some flexibility - if times overlap or are close
+                    const sessionStart = session.start_time;
+                    const sessionEnd = session.end_time;
+                    const criteriaStart = criteria.startTime;
+                    const criteriaEnd = criteria.endTime;
+                    
+                    // Check if there's significant overlap (at least 50% of either session)
+                    const overlapStart = Math.max(sessionStart, criteriaStart);
+                    const overlapEnd = Math.min(sessionEnd, criteriaEnd);
+                    const overlapDuration = Math.max(0, overlapEnd - overlapStart);
+                    
+                    const sessionDuration = sessionEnd - sessionStart;
+                    const criteriaDuration = criteriaEnd - criteriaStart;
+                    
+                    if (overlapDuration >= sessionDuration * 0.5 || overlapDuration >= criteriaDuration * 0.5) {
+                        timeMatch = true;
+                    }
+                }
+            }
+            
+            // Categorize matches
+            if (dayMatch && timeMatch) {
+                exactMatches.push(session);
+            } else if (dayMatch || timeMatch) {
+                partialMatches.push(session);
+            }
+        });
+        
+        const result = { exactMatches, partialMatches };
+        this.debugLog('Match results:', {
+            exactCount: exactMatches.length,
+            partialCount: partialMatches.length
+        });
+        
+        return result;
+    }
+    
+    /**
      * Parse availability slots from natural language text
      */
     async parseAvailabilityFromText(text) {
-        this.debugLog('Parsing availability from text:', text);
+        this.debugLog('=== ENHANCED TIME PARSING DEBUG ===');
+        this.debugLog('Original input text:', text);
+        this.debugLog('Text type:', typeof text);
+        this.debugLog('Text length:', text.length);
         
         const slots = [];
         const normalizedText = text.toLowerCase().trim();
+        this.debugLog('Normalized text:', normalizedText);
+        this.debugLog('Normalized length:', normalizedText.length);
         
         // Enhanced day mapping with better detection
         const dayMap = {
@@ -1345,12 +1747,12 @@ Respond to this general conversation message. Focus on fitness motivation and ad
             return null;
         }
         
-        // Enhanced time parsing with more patterns
+        // Enhanced time parsing with more patterns (FIXED to include 'and')
         const timePatterns = [
-            // "9 to 11am", "9-11am", "09 to 11am"
-            /(\d{1,2})\s*(?:to|-|until)\s*(\d{1,2})\s*(am|pm)/gi,
-            // "9am to 11am", "9am-11am"
-            /(\d{1,2})\s*(am|pm)\s*(?:to|-|until)\s*(\d{1,2})\s*(am|pm)/gi,
+            // "9 to 11am", "9-11am", "09 to 11am", "9 and 11am" (FIXED: added 'and')
+            /(\d{1,2})\s*(?:to|-|until|and)\s*(\d{1,2})\s*(am|pm)/gi,
+            // "9am to 11am", "9am-11am", "9am and 11am" (FIXED: added 'and')
+            /(\d{1,2})\s*(am|pm)\s*(?:to|-|until|and)\s*(\d{1,2})\s*(am|pm)/gi,
             // "09:00 to 11:00", "9:00-11:00"
             /(\d{1,2}):(\d{2})\s*(?:to|-|until)\s*(\d{1,2}):(\d{2})/gi,
             // "from 9am to 11am"
@@ -1367,22 +1769,39 @@ Respond to this general conversation message. Focus on fitness motivation and ad
         let startTime = null;
         let endTime = null;
         
-        for (const pattern of timePatterns) {
+        this.debugLog('Testing', timePatterns.length, 'time patterns...');
+        
+        for (let patternIndex = 0; patternIndex < timePatterns.length; patternIndex++) {
+            const pattern = timePatterns[patternIndex];
             // Reset regex lastIndex to avoid issues with global flag
             pattern.lastIndex = 0;
+            this.debugLog(`\n--- Testing Pattern ${patternIndex} ---`);
+            this.debugLog('Pattern:', pattern.toString());
+            
             timeMatch = pattern.exec(normalizedText);
             if (timeMatch) {
-                this.debugLog('Time pattern matched:', timeMatch);
+                this.debugLog('✓ PATTERN MATCHED!');
+                this.debugLog('Match array:', timeMatch);
+                this.debugLog('Match length:', timeMatch.length);
+                for (let i = 0; i < timeMatch.length; i++) {
+                    this.debugLog(`  Group ${i}: "${timeMatch[i]}"`);
+                }
                 
                 if (timeMatch.length === 4 && timeMatch[3]) { // "9 to 11am" format
+                    this.debugLog('Processing as "X to/and Y am/pm" format');
+                    this.debugLog(`Raw values: startHour="${timeMatch[1]}", endHour="${timeMatch[2]}", period="${timeMatch[3]}"`);
                     startTime = this.parseTime(timeMatch[1], timeMatch[3]);
                     endTime = this.parseTime(timeMatch[2], timeMatch[3]);
                 } else if (timeMatch.length === 5 && timeMatch[2] && timeMatch[4]) { // "9am to 11am" format
+                    this.debugLog('Processing as "X am/pm to/and Y am/pm" format');
+                    this.debugLog(`Raw values: startHour="${timeMatch[1]}", startPeriod="${timeMatch[2]}", endHour="${timeMatch[3]}", endPeriod="${timeMatch[4]}"`);
                     startTime = this.parseTime(timeMatch[1], timeMatch[2]);
                     endTime = this.parseTime(timeMatch[3], timeMatch[4]);
                 } else if (timeMatch.length === 5) { // "09:00 to 11:00" format (array has 5 elements)
+                    this.debugLog('Processing as "HH:MM to HH:MM" format');
                     const potentialStartTime = parseInt(timeMatch[1]);
                     const potentialEndTime = parseInt(timeMatch[3]);
+                    this.debugLog(`Raw values: startHour=${potentialStartTime}, endHour=${potentialEndTime}`);
                     
                     // Handle 24-hour format (0-23) - database uses 0-23 for hours
                     if (potentialStartTime >= 0 && potentialStartTime <= 23 && 
@@ -1395,11 +1814,16 @@ Respond to this general conversation message. Focus on fitness motivation and ad
                         endTime = null;
                     }
                 } else if (timeMatch.length === 3 && timeMatch[2]) { // "at 9am" or single time
+                    this.debugLog('Processing as single time format (adding 2 hours)');
+                    this.debugLog(`Raw values: hour="${timeMatch[1]}", period="${timeMatch[2]}"`);
                     startTime = this.parseTime(timeMatch[1], timeMatch[2]);
                     endTime = startTime + 2; // Default 2-hour duration
                     if (endTime > 23) endTime = 23; // Don't go past midnight
+                    this.debugLog(`Single time converted to: ${startTime}:00-${endTime}:00`);
                 } else if (timeMatch.length === 2 && typeof timeMatch[1] === 'string') { // "morning", "afternoon", "evening"
+                    this.debugLog('Processing as time-of-day format');
                     const timeOfDay = timeMatch[1].toLowerCase();
+                    this.debugLog(`Time of day: "${timeOfDay}"`);
                     switch (timeOfDay) {
                         case 'morning':
                             startTime = 9;  // 9 AM
@@ -1414,24 +1838,55 @@ Respond to this general conversation message. Focus on fitness motivation and ad
                             endTime = 21;   // 9 PM
                             break;
                     }
+                    this.debugLog(`Time-of-day converted to: ${startTime}:00-${endTime}:00`);
+                } else {
+                    this.debugLog('❌ Match format not recognized, trying next pattern');
+                    this.debugLog('Match details:', {
+                        length: timeMatch.length,
+                        groups: timeMatch,
+                        group2Type: typeof timeMatch[2],
+                        group4Type: typeof timeMatch[4]
+                    });
                 }
                 
+                this.debugLog(`Intermediate result: startTime=${startTime}, endTime=${endTime}`);
+                
                 if (startTime !== null && endTime !== null) {
+                    this.debugLog('✅ Valid time range found, stopping pattern search');
                     break; // Found valid time, stop looking
+                } else {
+                    this.debugLog('❌ Invalid time range, continuing to next pattern');
                 }
+            } else {
+                this.debugLog('✗ Pattern did not match');
             }
         }
         
-        this.debugLog('Parsed times:', { startTime, endTime });
+        this.debugLog('\n=== FINAL PARSING RESULTS ===');
+        this.debugLog('Final startTime:', startTime);
+        this.debugLog('Final endTime:', endTime);
+        this.debugLog('Target day:', targetDay);
         
         if (startTime !== null && endTime !== null && startTime < endTime && 
             startTime >= 0 && startTime <= 23 && endTime >= 1 && endTime <= 24) {
-            slots.push({
+            const slot = {
                 day: targetDay,
                 startTime: startTime,
                 endTime: endTime
-            });
+            };
+            slots.push(slot);
+            this.debugLog('✅ VALID SLOT CREATED:', slot);
+        } else {
+            this.debugLog('❌ SLOT VALIDATION FAILED:');
+            this.debugLog('  startTime:', startTime, '(null?', startTime === null, ')');
+            this.debugLog('  endTime:', endTime, '(null?', endTime === null, ')');
+            this.debugLog('  startTime < endTime?', startTime < endTime);
+            this.debugLog('  startTime in range [0,23]?', startTime >= 0 && startTime <= 23);
+            this.debugLog('  endTime in range [1,24]?', endTime >= 1 && endTime <= 24);
         }
+        
+        this.debugLog('Final slots array:', slots);
+        this.debugLog('=== TIME PARSING DEBUG COMPLETE ===\n');
         
         return slots.length > 0 ? slots : null;
     }
@@ -1440,27 +1895,33 @@ Respond to this general conversation message. Focus on fitness motivation and ad
      * Parse time string to 24-hour format
      */
     parseTime(hour, period) {
+        this.debugLog(`[parseTime] Converting: hour="${hour}", period="${period}"`);
         let h = parseInt(hour);
+        this.debugLog(`[parseTime] Parsed integer:`, h);
         
         // Validate input
         if (isNaN(h) || h < 1 || h > 12) {
-            this.debugLog('Invalid hour detected:', hour);
+            this.debugLog(`[parseTime] ❌ Invalid hour detected: ${hour} (parsed as ${h})`);
             return null;
         }
         
         if (!period || (period !== 'am' && period !== 'pm')) {
-            this.debugLog('Invalid period detected:', period);
+            this.debugLog(`[parseTime] ❌ Invalid period detected: "${period}"`);
             return null;
         }
         
         // Convert to 24-hour format
         if (period === 'pm' && h !== 12) {
             h += 12;
+            this.debugLog(`[parseTime] PM conversion (not 12): ${hour}${period} -> ${h}`);
         } else if (period === 'am' && h === 12) {
             h = 0;
+            this.debugLog(`[parseTime] AM 12 conversion: ${hour}${period} -> ${h}`);
+        } else {
+            this.debugLog(`[parseTime] No conversion needed: ${hour}${period} -> ${h}`);
         }
         
-        this.debugLog(`Converted ${hour}${period} to ${h}:00`);
+        this.debugLog(`[parseTime] ✅ Final result: ${hour}${period} -> ${h}:00`);
         return h;
     }
 
@@ -1540,6 +2001,19 @@ Respond to this general conversation message. Focus on fitness motivation and ad
         } catch (error) {
             console.error('[Bot Error] Failed to send error message:', error);
         }
+    }
+
+    /**
+     * Get user email by Telegram ID
+     */
+    async getUserEmail(telegramId) {
+        // Hardcoded mapping for Ivan and Youssef (expand this to use database lookup)
+        const telegramToEmail = {
+            [process.env.IVAN_TELEGRAM_ID]: 'ivanaguilarmari@gmail.com',
+            [process.env.YOUSSEF_TELEGRAM_ID]: 'youssef.email@gmail.com' // You'll need to set this
+        };
+        
+        return telegramToEmail[telegramId.toString()];
     }
 
     /**
@@ -1677,10 +2151,10 @@ Respond to this general conversation message. Focus on fitness motivation and ad
         
         if (!targetDay) return null;
         
-        // Simplified time parsing for testing
+        // Simplified time parsing for testing - FIXED to include 'and'
         const timePatterns = [
-            /(\d{1,2})\s*(?:to|-|until)\s*(\d{1,2})\s*(am|pm)/gi,
-            /(\d{1,2})\s*(am|pm)\s*(?:to|-|until)\s*(\d{1,2})\s*(am|pm)/gi,
+            /(\d{1,2})\s*(?:to|-|until|and)\s*(\d{1,2})\s*(am|pm)/gi,
+            /(\d{1,2})\s*(am|pm)\s*(?:to|-|until|and)\s*(\d{1,2})\s*(am|pm)/gi,
             /(\d{1,2}):(\d{2})\s*(?:to|-|until)\s*(\d{1,2}):(\d{2})/gi,
             /(morning|afternoon|evening)/gi
         ];

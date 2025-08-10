@@ -1,5 +1,7 @@
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
+const PartnerCoordinationAPI = require('./partner_coordination_endpoints');
+const RealtimeSyncService = require('./realtime_sync_service');
 require('dotenv').config();
 
 const app = express();
@@ -15,11 +17,23 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY
 );
 
-// CORS middleware for n8n
+// Initialize Partner Coordination API
+const partnerCoordination = new PartnerCoordinationAPI(supabase);
+
+// Initialize Realtime Sync Service
+const realtimeSync = new RealtimeSyncService(supabase);
+
+// CORS middleware for n8n and realtime connections
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cache-Control');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    
     next();
 });
 
@@ -39,12 +53,34 @@ app.get('/', (req, res) => {
             clear_availability: 'DELETE /availability/:username',
             clear_availability_by_email: 'DELETE /availability/by-email/:email',
             set_availability_by_email: 'POST /availability/by-email/:email',
-            common_availability: 'GET /availability/common/:user1/:user2',
+            common_availability: 'GET /availability/common/:email1/:email2',
             
-            // Sessions
+            // Partner coordination (NEW)
+            find_partner: 'GET /partners/find/:identifier',
+            partner_status: 'GET /partners/status/:email',
+            session_suggestions: 'GET /sessions/suggestions/:email1/:email2',
+            partner_request: 'POST /partners/request',
+            partner_response: 'PUT /partners/requests/:requestId/respond',
+            partner_requests_for_user: 'GET /partners/requests/:email',
+            
+            // Session management
             upcoming_sessions: 'GET /sessions/upcoming',
             book_session: 'POST /sessions/book',
             cancel_session: 'POST /sessions/cancel',
+            
+            // Session proposals (NEW)
+            create_proposal: 'POST /sessions/propose',
+            respond_to_proposal: 'PUT /sessions/proposals/:proposalId/respond',
+            get_pending_proposals: 'GET /sessions/proposals/pending/:email',
+            get_all_proposals: 'GET /sessions/proposals/:email',
+            cancel_proposal: 'DELETE /sessions/proposals/:proposalId',
+            counter_propose: 'POST /sessions/proposals/:proposalId/counter',
+            
+            // Real-time synchronization (NEW)
+            realtime_connect: 'GET /realtime/connect/:userEmail',
+            realtime_status: 'GET /realtime/status',
+            get_notifications: 'GET /notifications/:email',
+            mark_notification_read: 'PUT /notifications/:notificationId/read',
             
             // Debug and sync verification
             debug_sync_status: 'GET /debug/sync-status/:email?',
@@ -199,30 +235,301 @@ app.get('/availability/by-email/:email', async (req, res) => {
     }
 });
 
-// Get both users' availability and find common slots
-app.get('/availability/common/:user1/:user2', async (req, res) => {
+// Get both users' availability and find common slots (ENHANCED)
+app.get('/availability/common/:email1/:email2', async (req, res) => {
     try {
-        const { user1, user2 } = req.params;
+        const { email1, email2 } = req.params;
         
-        // Get both users' availability
-        const [user1Data, user2Data] = await Promise.all([
-            fetch(`http://localhost:${PORT}/availability/${user1}`).then(r => r.json()),
-            fetch(`http://localhost:${PORT}/availability/${user2}`).then(r => r.json())
-        ]);
-
-        // Find overlapping slots
-        const commonSlots = [];
+        console.log(`Getting common availability between ${email1} and ${email2}`);
         
-        // Logic to find 2-hour overlapping slots
-        // This is simplified - you'd need more complex logic for real overlap detection
+        const result = await partnerCoordination.findCommonAvailability(email1, email2);
+        
+        if (!result.success) {
+            return res.status(400).json({ 
+                error: result.error,
+                email1,
+                email2 
+            });
+        }
         
         res.json({
-            user1: user1Data,
-            user2: user2Data,
-            commonSlots: commonSlots,
-            suggestedSessions: [] // Add logic to suggest 2 optimal sessions
+            success: true,
+            ...result.data,
+            timestamp: new Date().toISOString()
         });
     } catch (error) {
+        console.error('Error in common availability endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Generate session suggestions from common availability
+app.get('/sessions/suggestions/:email1/:email2', async (req, res) => {
+    try {
+        const { email1, email2 } = req.params;
+        
+        console.log(`Generating session suggestions for ${email1} and ${email2}`);
+        
+        // First get common availability
+        const commonResult = await partnerCoordination.findCommonAvailability(email1, email2);
+        
+        if (!commonResult.success) {
+            return res.status(400).json({ 
+                error: commonResult.error,
+                email1,
+                email2 
+            });
+        }
+        
+        // Generate suggestions from overlapping slots
+        const partnerIds = [commonResult.data.user1.id, commonResult.data.user2.id];
+        const suggestions = partnerCoordination.generateSessionSuggestions(
+            commonResult.data.overlappingSlots, 
+            partnerIds
+        );
+        
+        res.json({
+            success: true,
+            user1: commonResult.data.user1,
+            user2: commonResult.data.user2,
+            overlappingSlots: commonResult.data.overlappingSlots,
+            ...suggestions,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in session suggestions endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========================================
+// PARTNER MANAGEMENT ENDPOINTS
+// ========================================
+
+// Send partner request
+app.post('/partners/request', async (req, res) => {
+    try {
+        const { requesterEmail, targetEmail, message = '' } = req.body;
+        
+        if (!requesterEmail || !targetEmail) {
+            return res.status(400).json({ 
+                error: 'requesterEmail and targetEmail are required' 
+            });
+        }
+        
+        console.log(`Partner request from ${requesterEmail} to ${targetEmail}`);
+        
+        const result = await partnerCoordination.sendPartnerRequest(
+            requesterEmail, 
+            targetEmail, 
+            message
+        );
+        
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+        
+        res.json({
+            success: true,
+            request: result.data,
+            message: result.message,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in partner request endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Enhanced partner request response with real-time sync
+app.put('/partners/requests/:requestId/respond', async (req, res) => {
+    try {
+        const { requestId } = req.params;
+        const { userEmail, response, message = '' } = req.body;
+        
+        if (!userEmail || !response) {
+            return res.status(400).json({ 
+                error: 'userEmail and response are required' 
+            });
+        }
+        
+        if (!['accepted', 'rejected'].includes(response)) {
+            return res.status(400).json({ 
+                error: 'response must be "accepted" or "rejected"' 
+            });
+        }
+        
+        console.log(`Partner request ${requestId} ${response} by ${userEmail}`);
+        
+        const result = await partnerCoordination.respondToPartnerRequest(
+            requestId, 
+            userEmail, 
+            response, 
+            message
+        );
+        
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+        
+        // Real-time sync will be triggered automatically by database change
+        console.log('✅ Partner request response processed, real-time notifications will be sent automatically');
+        
+        res.json({
+            success: true,
+            message: result.message,
+            partnersLinked: result.partnersLinked,
+            realtimeSync: 'enabled',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in partner response endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========================================
+// SESSION PROPOSAL ENDPOINTS
+// ========================================
+
+// Enhanced session proposal with real-time sync
+app.post('/sessions/propose', async (req, res) => {
+    try {
+        const { 
+            proposerEmail, 
+            proposedDate, 
+            startTime, 
+            endTime, 
+            message = '' 
+        } = req.body;
+        
+        if (!proposerEmail || !proposedDate || startTime === undefined || endTime === undefined) {
+            return res.status(400).json({ 
+                error: 'proposerEmail, proposedDate, startTime, and endTime are required' 
+            });
+        }
+        
+        console.log(`Session proposal from ${proposerEmail} for ${proposedDate}`);
+        
+        const result = await partnerCoordination.createSessionProposal(
+            proposerEmail,
+            proposedDate,
+            startTime,
+            endTime,
+            message
+        );
+        
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+        
+        // Real-time sync will be triggered automatically by database change
+        console.log('✅ Session proposal created, real-time notifications will be sent automatically');
+        
+        res.json({
+            success: true,
+            proposal: result.data,
+            message: result.message,
+            realtimeSync: 'enabled',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in session proposal endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Enhanced session proposal response with real-time sync
+app.put('/sessions/proposals/:proposalId/respond', async (req, res) => {
+    try {
+        const { proposalId } = req.params;
+        const { userEmail, response, message = '' } = req.body;
+        
+        if (!userEmail || !response) {
+            return res.status(400).json({ 
+                error: 'userEmail and response are required' 
+            });
+        }
+        
+        if (!['accepted', 'rejected', 'counter_proposed'].includes(response)) {
+            return res.status(400).json({ 
+                error: 'response must be "accepted", "rejected", or "counter_proposed"' 
+            });
+        }
+        
+        console.log(`Session proposal ${proposalId} ${response} by ${userEmail}`);
+        
+        const result = await partnerCoordination.respondToSessionProposal(
+            proposalId,
+            userEmail,
+            response,
+            message
+        );
+        
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+        
+        // Real-time sync will be triggered automatically by database change
+        console.log('✅ Session proposal response processed, real-time notifications will be sent automatically');
+        
+        res.json({
+            success: true,
+            message: result.message,
+            session: result.session,
+            realtimeSync: 'enabled',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in session proposal response endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get pending proposals for user
+app.get('/sessions/proposals/pending/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        
+        console.log(`Getting pending proposals for ${email}`);
+        
+        // Get user
+        const userResult = await partnerCoordination.getUserWithAvailability(email);
+        if (!userResult.success) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Get pending proposals where user is involved
+        const { data: proposals, error } = await supabase
+            .from('session_proposals')
+            .select(`
+                *,
+                proposer:proposer_id(name, email),
+                partner:partner_id(name, email)
+            `)
+            .or(`proposer_id.eq.${userResult.data.id},partner_id.eq.${userResult.data.id}`)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+            
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+        
+        res.json({
+            success: true,
+            user: userResult.data,
+            proposals: proposals || [],
+            count: proposals?.length || 0,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in pending proposals endpoint:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -825,6 +1132,585 @@ app.delete('/sessions/:sessionId/by-email/:email', async (req, res) => {
     }
 });
 
+// ========================================
+// REAL-TIME SYNCHRONIZATION ENDPOINTS
+// ========================================
+
+// Server-Sent Events endpoint for real-time updates
+app.get('/realtime/connect/:userEmail', (req, res) => {
+    try {
+        console.log(`Real-time connection request from: ${req.params.userEmail}`);
+        realtimeSync.setupSSEConnection(req, res);
+    } catch (error) {
+        console.error('Error setting up SSE connection:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get real-time service status
+app.get('/realtime/status', (req, res) => {
+    try {
+        const status = {
+            service: 'active',
+            activeConnections: realtimeSync.getActiveConnectionsCount(),
+            connectedUsers: realtimeSync.getActiveConnections(),
+            subscriptions: {
+                partner_requests: 'active',
+                session_proposals: 'active',
+                sessions: 'active',
+                coordination_states: 'active',
+                availability: 'active'
+            },
+            timestamp: new Date().toISOString()
+        };
+
+        res.json({
+            success: true,
+            status,
+            message: `Real-time sync service operational with ${status.activeConnections} active connections`
+        });
+    } catch (error) {
+        console.error('Error getting realtime status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get notifications for user
+app.get('/notifications/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const { unreadOnly = 'false', limit = '20' } = req.query;
+        
+        console.log(`Getting notifications for ${email}`);
+        
+        // Get user
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('id, name, email')
+            .eq('email', email)
+            .single();
+            
+        if (userError || !user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Build query
+        let query = supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(parseInt(limit));
+
+        // Filter unread only if requested
+        if (unreadOnly === 'true') {
+            query = query.is('read_at', null);
+        }
+
+        const { data: notifications, error } = await query;
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        res.json({
+            success: true,
+            user: { name: user.name, email: user.email },
+            notifications: notifications || [],
+            count: notifications?.length || 0,
+            unreadCount: notifications?.filter(n => !n.read_at).length || 0,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error getting notifications:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark notification as read
+app.put('/notifications/:notificationId/read', async (req, res) => {
+    try {
+        const { notificationId } = req.params;
+        const { userEmail } = req.body;
+        
+        if (!userEmail) {
+            return res.status(400).json({ error: 'userEmail required in request body' });
+        }
+
+        // Get user to verify ownership
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', userEmail)
+            .single();
+            
+        if (userError || !user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Update notification
+        const { data, error } = await supabase
+            .from('notifications')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', notificationId)
+            .eq('user_id', user.id)
+            .select()
+            .single();
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        if (!data) {
+            return res.status(404).json({ error: 'Notification not found or access denied' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Notification marked as read',
+            notification: data
+        });
+
+    } catch (error) {
+        console.error('Error marking notification as read:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========================================
+// ENHANCED PARTNER COORDINATION ENDPOINTS
+// ========================================
+
+// Find partner by email or Telegram ID
+app.get('/partners/find/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        
+        console.log(`Partner search for: ${identifier}`);
+        
+        const result = await partnerCoordination.findPartnerByIdentifier(identifier);
+        
+        if (!result.success) {
+            return res.status(404).json({ error: result.error });
+        }
+        
+        res.json({
+            success: true,
+            partner: result.data,
+            searchedBy: identifier.includes('@') ? 'email' : 'telegram_id',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in partner search:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get partner relationship status
+app.get('/partners/status/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        
+        // Get user
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('id, name, email, partner_id')
+            .eq('email', email)
+            .single();
+            
+        if (userError || !user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        let partnerInfo = null;
+        let relationshipStatus = 'no_partner';
+        
+        if (user.partner_id) {
+            // Get partner details
+            const { data: partner } = await supabase
+                .from('users')
+                .select('id, name, email, telegram_id')
+                .eq('id', user.partner_id)
+                .single();
+                
+            if (partner) {
+                partnerInfo = {
+                    id: partner.id,
+                    name: partner.name,
+                    email: partner.email,
+                    telegramId: partner.telegram_id
+                };
+                relationshipStatus = 'has_partner';
+            }
+        }
+        
+        // Check for pending requests
+        const { data: pendingRequests } = await supabase
+            .from('partner_requests')
+            .select(`
+                *,
+                requester:requester_id(name, email, telegram_id),
+                requested:requested_user_id(name, email, telegram_id)
+            `)
+            .or(`requester_id.eq.${user.id},requested_user_id.eq.${user.id}`)
+            .eq('status', 'pending');
+            
+        res.json({
+            success: true,
+            user: { name: user.name, email: user.email },
+            relationshipStatus,
+            partner: partnerInfo,
+            pendingRequests: pendingRequests || [],
+            hasCoordination: !!user.partner_id,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error getting partner status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get partner requests for user
+app.get('/partners/requests/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        
+        // Get user
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('id, name, email')
+            .eq('email', email)
+            .single();
+            
+        if (userError || !user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Get all partner requests (sent and received)
+        const { data: requests, error } = await supabase
+            .from('partner_requests')
+            .select(`
+                *,
+                requester:requester_id(name, email, telegram_id),
+                requested:requested_user_id(name, email, telegram_id)
+            `)
+            .or(`requester_id.eq.${user.id},requested_user_id.eq.${user.id}`)
+            .order('created_at', { ascending: false });
+            
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+        
+        const categorized = {
+            received: requests?.filter(r => r.requested_user_id === user.id) || [],
+            sent: requests?.filter(r => r.requester_id === user.id) || [],
+            pending: requests?.filter(r => r.status === 'pending') || []
+        };
+        
+        res.json({
+            success: true,
+            user: { name: user.name, email: user.email },
+            requests: categorized,
+            total: requests?.length || 0,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error getting partner requests:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Enhanced partner request endpoint with real-time sync
+app.post('/partners/request', async (req, res) => {
+    try {
+        const { requesterIdentifier, targetIdentifier, message = '' } = req.body;
+        
+        if (!requesterIdentifier || !targetIdentifier) {
+            return res.status(400).json({ 
+                error: 'requesterIdentifier and targetIdentifier are required (email or Telegram ID)' 
+            });
+        }
+        
+        console.log(`Partner request from ${requesterIdentifier} to ${targetIdentifier}`);
+        
+        const result = await partnerCoordination.sendPartnerRequest(
+            requesterIdentifier, 
+            targetIdentifier, 
+            message
+        );
+        
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+        
+        // Real-time sync will be triggered automatically by database change
+        console.log('✅ Partner request created, real-time notifications will be sent automatically');
+        
+        res.json({
+            success: true,
+            request: result.data,
+            message: result.message,
+            requester: result.requester,
+            target: result.target,
+            realtimeSync: 'enabled',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in partner request endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all proposals for user (sent and received)
+app.get('/sessions/proposals/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const { status = 'all', limit = '20' } = req.query;
+        
+        console.log(`Getting proposals for ${email}`);
+        
+        // Get user
+        const userResult = await partnerCoordination.getUserWithAvailability(email);
+        if (!userResult.success) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Build query
+        let query = supabase
+            .from('session_proposals')
+            .select(`
+                *,
+                proposer:proposer_id(name, email, telegram_id),
+                partner:partner_id(name, email, telegram_id),
+                session:session_id(*)
+            `)
+            .or(`proposer_id.eq.${userResult.data.id},partner_id.eq.${userResult.data.id}`)
+            .order('created_at', { ascending: false })
+            .limit(parseInt(limit));
+            
+        // Filter by status if specified
+        if (status !== 'all') {
+            query = query.eq('status', status);
+        }
+            
+        const { data: proposals, error } = await query;
+            
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+        
+        // Categorize proposals
+        const categorized = {
+            sent: proposals?.filter(p => p.proposer_id === userResult.data.id) || [],
+            received: proposals?.filter(p => p.partner_id === userResult.data.id) || [],
+            pending: proposals?.filter(p => p.status === 'pending') || [],
+            accepted: proposals?.filter(p => p.status === 'accepted') || [],
+            rejected: proposals?.filter(p => p.status === 'rejected') || []
+        };
+        
+        res.json({
+            success: true,
+            user: userResult.data,
+            proposals: categorized,
+            total: proposals?.length || 0,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in get all proposals endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Cancel a session proposal
+app.delete('/sessions/proposals/:proposalId', async (req, res) => {
+    try {
+        const { proposalId } = req.params;
+        const { userEmail } = req.body;
+        
+        if (!userEmail) {
+            return res.status(400).json({ error: 'userEmail required in request body' });
+        }
+        
+        console.log(`Cancelling proposal ${proposalId} by ${userEmail}`);
+        
+        // Get user
+        const userResult = await partnerCoordination.getUserWithAvailability(userEmail);
+        if (!userResult.success) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Get and validate proposal
+        const { data: proposal, error: proposalError } = await supabase
+            .from('session_proposals')
+            .select('*')
+            .eq('id', proposalId)
+            .single();
+            
+        if (proposalError || !proposal) {
+            return res.status(404).json({ error: 'Proposal not found' });
+        }
+        
+        // Check if user can cancel (must be proposer and status must be pending)
+        if (proposal.proposer_id !== userResult.data.id) {
+            return res.status(403).json({ error: 'Only the proposer can cancel a proposal' });
+        }
+        
+        if (proposal.status !== 'pending') {
+            return res.status(400).json({ error: 'Can only cancel pending proposals' });
+        }
+        
+        // Update proposal status
+        const { data: updatedProposal, error: updateError } = await supabase
+            .from('session_proposals')
+            .update({ 
+                status: 'cancelled',
+                responded_at: new Date().toISOString()
+            })
+            .eq('id', proposalId)
+            .select()
+            .single();
+            
+        if (updateError) {
+            return res.status(500).json({ error: updateError.message });
+        }
+        
+        console.log('✅ Proposal cancelled, real-time notifications will be sent automatically');
+        
+        res.json({
+            success: true,
+            message: 'Proposal cancelled',
+            proposal: updatedProposal,
+            realtimeSync: 'enabled',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in cancel proposal endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Counter-propose to a session proposal
+app.post('/sessions/proposals/:proposalId/counter', async (req, res) => {
+    try {
+        const { proposalId } = req.params;
+        const { 
+            userEmail, 
+            counterDate, 
+            counterStartTime, 
+            counterEndTime, 
+            message = '' 
+        } = req.body;
+        
+        if (!userEmail || !counterDate || counterStartTime === undefined || counterEndTime === undefined) {
+            return res.status(400).json({ 
+                error: 'userEmail, counterDate, counterStartTime, and counterEndTime are required' 
+            });
+        }
+        
+        console.log(`Counter-proposal for ${proposalId} by ${userEmail}`);
+        
+        // Get user
+        const userResult = await partnerCoordination.getUserWithAvailability(userEmail);
+        if (!userResult.success) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        
+        // Get original proposal
+        const { data: originalProposal, error: proposalError } = await supabase
+            .from('session_proposals')
+            .select('*')
+            .eq('id', proposalId)
+            .single();
+            
+        if (proposalError || !originalProposal) {
+            return res.status(404).json({ error: 'Original proposal not found' });
+        }
+        
+        // Verify user can counter-propose (must be the partner)
+        if (originalProposal.partner_id !== userResult.data.id) {
+            return res.status(403).json({ error: 'Only the proposal recipient can counter-propose' });
+        }
+        
+        if (originalProposal.status !== 'pending') {
+            return res.status(400).json({ error: 'Can only counter-propose to pending proposals' });
+        }
+        
+        // Validate session duration (minimum 2 hours)
+        if (counterEndTime - counterStartTime < 4) {
+            return res.status(400).json({ error: 'Counter-proposal must be at least 2 hours long' });
+        }
+        
+        // Update original proposal status
+        await supabase
+            .from('session_proposals')
+            .update({ 
+                status: 'counter_proposed',
+                responded_at: new Date().toISOString(),
+                response_message: `Counter-proposed: ${message}`
+            })
+            .eq('id', proposalId);
+        
+        // Create counter-proposal
+        const { data: counterProposal, error: counterError } = await supabase
+            .from('session_proposals')
+            .insert({
+                proposer_id: userResult.data.id,
+                partner_id: originalProposal.proposer_id,
+                proposed_date: counterDate,
+                proposed_start_time: counterStartTime,
+                proposed_end_time: counterEndTime,
+                response_message: message,
+                parent_proposal_id: proposalId
+            })
+            .select()
+            .single();
+            
+        if (counterError) {
+            return res.status(500).json({ error: counterError.message });
+        }
+        
+        console.log('✅ Counter-proposal created, real-time notifications will be sent automatically');
+        
+        res.json({
+            success: true,
+            message: 'Counter-proposal created',
+            originalProposal: originalProposal,
+            counterProposal: counterProposal,
+            realtimeSync: 'enabled',
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Error in counter-proposal endpoint:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`🏋️ GymBuddy API running on port ${PORT}`);
+    console.log('📡 Real-time synchronization service active');
+    console.log(`🔗 SSE endpoint: http://localhost:${PORT}/realtime/connect/:userEmail`);
+    console.log(`📊 Real-time status: http://localhost:${PORT}/realtime/status`);
+    console.log(`🤝 Partner coordination: http://localhost:${PORT}/partners/find/:identifier`);
+    console.log(`📅 Session proposals: http://localhost:${PORT}/sessions/propose`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+    await realtimeSync.cleanup();
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('SIGINT received, shutting down gracefully...');
+    await realtimeSync.cleanup();
+    process.exit(0);
 });

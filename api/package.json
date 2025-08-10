@@ -1,21 +1,25 @@
 {
-  "name": "gymbuddy-api",
-  "version": "1.0.0",
-  "description": "GymBuddy API for database operations",
+  "name": "gymbuddy-api-server",
+  "version": "2.0.0",
+  "description": "GymBuddy Bot Synchronization API Server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "@supabase/supabase-js": "^2.39.0",
-    "dotenv": "^16.3.1"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+    "dev": "node server.js",
+    "test": "curl http://localhost:3001/",
+    "heroku-postbuild": "echo 'No build step required for API server'"
   },
   "engines": {
-    "node": "18.x"
-  }
+    "node": "18.x",
+    "npm": "8.x"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.52.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^4.21.2"
+  },
+  "keywords": ["gymbuddy", "telegram", "bot", "api", "sync"],
+  "author": "Ivan & Claude",
+  "license": "MIT"
 }

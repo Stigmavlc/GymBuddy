@@ -452,6 +452,238 @@ class GymBuddyAPIService {
             return { success: false, error: result.error };
         }
     }
+
+    /**
+     * Get user by email (for partner coordination)
+     */
+    async getUserByEmail(email) {
+        console.log(`[Bot Operation] Getting user by email: ${email}`);
+        
+        const result = await this.makeAPIRequest(`/user/by-email/${encodeURIComponent(email)}`);
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Found user: ${result.data.user.name} (${result.data.user.email})`);
+            return {
+                success: true,
+                user: result.data.user
+            };
+        } else {
+            console.error(`[Bot Error] User lookup by email failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Find partner by email or Telegram ID
+     */
+    async findPartner(identifier) {
+        console.log(`[Bot Operation] Finding partner: ${identifier}`);
+        
+        const result = await this.makeAPIRequest(`/partners/find/${encodeURIComponent(identifier)}`);
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Found partner: ${result.data.partner.name}`);
+            return {
+                success: true,
+                partner: result.data.partner
+            };
+        } else {
+            console.error(`[Bot Error] Partner search failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Get partner status for user
+     */
+    async getPartnerStatus(email) {
+        console.log(`[Bot Operation] Getting partner status for: ${email}`);
+        
+        const result = await this.makeAPIRequest(`/partners/status/${encodeURIComponent(email)}`);
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Partner status: ${result.data.relationshipStatus}`);
+            return {
+                success: true,
+                ...result.data
+            };
+        } else {
+            console.error(`[Bot Error] Partner status check failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Send partner request
+     */
+    async sendPartnerRequest(requesterEmail, targetIdentifier, message = '') {
+        console.log(`[Bot Operation] Sending partner request from ${requesterEmail} to ${targetIdentifier}`);
+        
+        const result = await this.makeAPIRequest('/partners/request', {
+            method: 'POST',
+            body: JSON.stringify({
+                requesterIdentifier: requesterEmail,
+                targetIdentifier: targetIdentifier,
+                message: message
+            })
+        });
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Partner request sent successfully`);
+            return {
+                success: true,
+                request: result.data.request,
+                message: result.data.message
+            };
+        } else {
+            console.error(`[Bot Error] Partner request failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Respond to partner request
+     */
+    async respondToPartnerRequest(requestId, userEmail, response, message = '') {
+        console.log(`[Bot Operation] Responding to partner request ${requestId}: ${response}`);
+        
+        const result = await this.makeAPIRequest(`/partners/requests/${requestId}/respond`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                userEmail: userEmail,
+                response: response,
+                message: message
+            })
+        });
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Partner request response sent successfully`);
+            return {
+                success: true,
+                message: result.data.message,
+                partnersLinked: result.data.partnersLinked
+            };
+        } else {
+            console.error(`[Bot Error] Partner request response failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Get common availability between two users (for session suggestions)
+     */
+    async getCommonAvailability(email1, email2) {
+        console.log(`[Bot Operation] Getting common availability between ${email1} and ${email2}`);
+        
+        const result = await this.makeAPIRequest(`/availability/common/${encodeURIComponent(email1)}/${encodeURIComponent(email2)}`);
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Found ${result.data.overlappingSlots?.length || 0} overlapping slots`);
+            return {
+                success: true,
+                ...result.data
+            };
+        } else {
+            console.error(`[Bot Error] Common availability lookup failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Get session suggestions between two users
+     */
+    async getSessionSuggestions(email1, email2) {
+        console.log(`[Bot Operation] Getting session suggestions between ${email1} and ${email2}`);
+        
+        const result = await this.makeAPIRequest(`/sessions/suggestions/${encodeURIComponent(email1)}/${encodeURIComponent(email2)}`);
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Found ${result.data.suggestions?.length || 0} session suggestions`);
+            return {
+                success: true,
+                user1: result.data.user1,
+                user2: result.data.user2,
+                suggestions: result.data.suggestions,
+                overlappingSlots: result.data.overlappingSlots
+            };
+        } else {
+            console.error(`[Bot Error] Session suggestions failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Book a session
+     */
+    async bookSession(user1Email, user2Email, date, startTime, endTime) {
+        console.log(`[Bot Operation] Booking session between ${user1Email} and ${user2Email}`);
+        
+        const result = await this.makeAPIRequest('/sessions/book', {
+            method: 'POST',
+            body: JSON.stringify({
+                user1: user1Email,
+                user2: user2Email,
+                date: date,
+                startTime: startTime,
+                endTime: endTime
+            })
+        });
+        
+        if (result.success) {
+            console.log(`[Bot Operation] Session booked successfully`);
+            return {
+                success: true,
+                session: result.data.session,
+                message: result.data.message
+            };
+        } else {
+            console.error(`[Bot Error] Session booking failed: ${result.error}`);
+            return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Check if both users have availability (coordination trigger check)
+     */
+    async checkCoordinationTrigger(email1, email2) {
+        console.log(`[Bot Operation] Checking coordination trigger for ${email1} and ${email2}`);
+        
+        try {
+            // Get both users' availability
+            const [user1Availability, user2Availability] = await Promise.all([
+                this.getUserAvailability(this.getTelegramIdByEmail(email1)),
+                this.getUserAvailability(this.getTelegramIdByEmail(email2))
+            ]);
+            
+            const bothHaveAvailability = user1Availability.length > 0 && user2Availability.length > 0;
+            
+            console.log(`[Bot Operation] Coordination trigger: ${bothHaveAvailability ? 'YES' : 'NO'}`);
+            console.log(`[Bot Operation] ${email1}: ${user1Availability.length} slots, ${email2}: ${user2Availability.length} slots`);
+            
+            return {
+                success: true,
+                shouldTrigger: bothHaveAvailability,
+                user1Slots: user1Availability.length,
+                user2Slots: user2Availability.length
+            };
+        } catch (error) {
+            console.error(`[Bot Error] Coordination trigger check failed: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Get Telegram ID by email (helper method)
+     */
+    getTelegramIdByEmail(email) {
+        // Reverse mapping
+        const emailToTelegram = {};
+        Object.entries(this.userMapping).forEach(([telegramId, userEmail]) => {
+            emailToTelegram[userEmail] = telegramId;
+        });
+        
+        return emailToTelegram[email];
+    }
 }
 
 module.exports = GymBuddyAPIService;
