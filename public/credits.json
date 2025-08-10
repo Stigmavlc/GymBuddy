@@ -1,0 +1,15 @@
+{
+  "favicon": {
+    "source": "Flaticon",
+    "attribution": "Gym icons created by Skyclick - Flaticon",
+    "url": "https://www.flaticon.com/free-icons/gym",
+    "license": "Free for personal and commercial use with attribution",
+    "note": "This file maintains proper attribution for the favicon used in GymBuddy. The icon is not displayed with visible text attribution as it is a favicon, but this file ensures proper credit is given to the creator."
+  },
+  "project": {
+    "name": "GymBuddy",
+    "description": "A workout coordination app for gym partners",
+    "developers": ["Ivan Aguilar"],
+    "year": 2025
+  }
+}
