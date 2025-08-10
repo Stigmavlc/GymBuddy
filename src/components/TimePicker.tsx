@@ -51,7 +51,26 @@ export function TimePicker({
     }
   };
   
-  debugLog(`Component rendered`, { open, initialTimeRange });
+  // Generate unique component ID for lifecycle tracking
+  const componentId = React.useMemo(() => `timepicker-${hour}-${Date.now()}`, [hour]);
+  
+  // Track component lifecycle for debugging
+  React.useEffect(() => {
+    debugLog(`🟢 Component mounted`, { componentId, open, initialTimeRange });
+    return () => {
+      debugLog(`🔴 Component unmounting`, { componentId });
+    };
+  }, []);
+  
+  // Track render cycles
+  const renderCount = React.useRef(0);
+  renderCount.current += 1;
+  debugLog(`🔄 Render #${renderCount.current}`, { 
+    componentId,
+    open, 
+    initialTimeRange,
+    propsHash: `${hour}-${initialTimeRange?.startMinute}-${initialTimeRange?.duration}-${open}`
+  });
   const [startMinute, setStartMinute] = useState<number>(
     initialTimeRange?.startMinute ?? 0
   )
@@ -110,16 +129,28 @@ export function TimePicker({
     }
   }
 
+  // Track prop changes that might cause reconciliation issues
+  React.useEffect(() => {
+    debugLog('⚠️  Props changed', {
+      componentId,
+      hour,
+      initialTimeRange: initialTimeRange ? `${initialTimeRange.startMinute}-${initialTimeRange.duration}` : 'null',
+      open
+    });
+  }, [hour, initialTimeRange, open]);
+  
   // Reset to initial values when popover opens
   useEffect(() => {
-    debugLog('Open state changed', { 
+    debugLog('🔄 Open state changed', { 
+      componentId,
       open, 
       initialTimeRange, 
       willReset: open && initialTimeRange 
     });
     
     if (open && initialTimeRange) {
-      debugLog('Resetting time picker values', {
+      debugLog('🔧 Resetting time picker values', {
+        componentId,
         startMinute: initialTimeRange.startMinute,
         endMinute: initialTimeRange.endMinute,
         endHour: hour + Math.floor(initialTimeRange.duration / 60)
@@ -135,7 +166,7 @@ export function TimePicker({
 
   const handleSave = () => {
     if (!isValid) {
-      debugLog('Save attempted but time range invalid', { duration });
+      debugLog('❌ Save attempted but time range invalid', { componentId, duration });
       return;
     }
 
@@ -145,21 +176,50 @@ export function TimePicker({
       duration
     };
     
-    debugLog('Save button clicked', { timeRange, currentOpen: open });
+    debugLog('💾 Save button clicked', { componentId, timeRange, currentOpen: open });
     onSave(timeRange);
-    debugLog('onSave callback completed, calling onOpenChange(false)');
+    debugLog('✅ onSave callback completed, calling onOpenChange(false)', { componentId });
     onOpenChange?.(false);
   }
 
   const handleCancel = () => {
-    debugLog('Cancel button clicked', { currentOpen: open });
+    debugLog('❌ Cancel button clicked', { componentId, currentOpen: open });
     onCancel();
-    debugLog('onCancel callback completed, calling onOpenChange(false)');
+    debugLog('✅ onCancel callback completed, calling onOpenChange(false)', { componentId });
     onOpenChange?.(false);
   }
 
+  // Add Radix Popover debugging
+  React.useEffect(() => {
+    if (open) {
+      debugLog(`🔴 Radix Popover opened`, {
+        componentId,
+        hour,
+        initialTimeRange: initialTimeRange ? `${initialTimeRange.startMinute}-${initialTimeRange.duration}` : 'null',
+        radixState: 'opened'
+      });
+    } else {
+      debugLog(`🔵 Radix Popover closed`, {
+        componentId,
+        hour,
+        radixState: 'closed'
+      });
+    }
+  }, [open]);
+
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
+    <Popover 
+      open={open} 
+      onOpenChange={(newOpen) => {
+        debugLog(`🔄 Radix onOpenChange triggered`, {
+          componentId,
+          from: open,
+          to: newOpen,
+          source: 'radix-internal'
+        });
+        onOpenChange?.(newOpen);
+      }}
+    >
       <PopoverTrigger asChild>
         {children}
       </PopoverTrigger>
@@ -266,9 +326,9 @@ export function TimePicker({
               {initialTimeRange && onRemove && (
                 <Button 
                   onClick={() => {
-                    debugLog('Remove button clicked', { currentOpen: open });
+                    debugLog('🗑️  Remove button clicked', { componentId, currentOpen: open });
                     onRemove();
-                    debugLog('onRemove callback completed, calling onOpenChange(false)');
+                    debugLog('✅ onRemove callback completed, calling onOpenChange(false)', { componentId });
                     onOpenChange?.(false);
                   }} 
                   variant="destructive" 
