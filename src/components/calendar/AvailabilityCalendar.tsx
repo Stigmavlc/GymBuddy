@@ -29,7 +29,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     return initial;
   });
   
-  const [activeTimePicker, setActiveTimePicker] = useState<string | null>(null);
+  // Popover state is now managed internally by each TimePicker component
   const [isDirty, setIsDirty] = useState(false);
 
   // CRITICAL FIX: Handle initialAvailability prop changes
@@ -58,12 +58,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     }
   }, [initialAvailability]);
 
-  // Simple event handlers
-  const handleHourClick = (day: string, hour: number) => {
-    const dayKey = day.toLowerCase();
-    const timePickerKey = `${dayKey}-${hour}`;
-    setActiveTimePicker(timePickerKey);
-  };
+  // Event handlers are no longer needed - TimePicker manages its own state
 
   const handleSave = (day: string, hour: number, timeRange: TimeRange) => {
     const dayKey = day.toLowerCase();
@@ -75,12 +70,10 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
       return newAvailability;
     });
     setIsDirty(true);
-    setActiveTimePicker(null);
+    // Popover will close automatically after save
   };
 
-  const handleCancel = () => {
-    setActiveTimePicker(null);
-  };
+  // Cancel is handled internally by TimePicker component
 
   const handleRemove = (day: string, hour: number) => {
     const dayKey = day.toLowerCase();
@@ -92,7 +85,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
       return newAvailability;
     });
     setIsDirty(true);
-    setActiveTimePicker(null);
+    // Popover will close automatically after remove
   };
 
   const formatTime = (hour: number) => {
@@ -113,7 +106,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
     });
     setAvailability(cleared);
     setIsDirty(true);
-    setActiveTimePicker(null);
+    // No popover to close
   };
 
   const getTotalSlots = () => {
@@ -157,8 +150,6 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                   {HOURS.map(hour => {
                     const timeRange = availability[dayKey].get(hour);
                     const isSelected = timeRange !== undefined;
-                    const timePickerKey = `${dayKey}-${hour}`;
-                    const isTimePickerOpen = activeTimePicker === timePickerKey;
                     
                     return (
                       <TimePicker
@@ -166,16 +157,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                         hour={hour}
                         initialTimeRange={timeRange || undefined}
                         onSave={(range) => handleSave(day, hour, range)}
-                        onCancel={handleCancel}
                         onRemove={() => handleRemove(day, hour)}
-                        open={isTimePickerOpen}
-                        onOpenChange={(open) => {
-                          if (open) {
-                            setActiveTimePicker(timePickerKey);
-                          } else {
-                            setActiveTimePicker(null);
-                          }
-                        }}
                       >
                         <button
                           className={cn(
@@ -184,7 +166,6 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                               ? "bg-primary border-primary text-primary-foreground font-medium" 
                               : "bg-background border-border hover:bg-muted"
                           )}
-                          onClick={() => handleHourClick(day, hour)}
                         >
                           <div className="flex items-center gap-1">
                             {isSelected && <Clock className="h-3 w-3" />}
@@ -230,8 +211,6 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                         {HOURS.map(hour => {
                           const timeRange = availability[dayKey].get(hour);
                           const isSelected = timeRange !== undefined;
-                          const timePickerKey = `${dayKey}-${hour}`;
-                          const isTimePickerOpen = activeTimePicker === timePickerKey;
                           
                           return (
                             <TimePicker
@@ -239,16 +218,7 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                               hour={hour}
                               initialTimeRange={timeRange || undefined}
                               onSave={(range) => handleSave(day, hour, range)}
-                              onCancel={handleCancel}
                               onRemove={() => handleRemove(day, hour)}
-                              open={isTimePickerOpen}
-                              onOpenChange={(open) => {
-                                if (open) {
-                                  setActiveTimePicker(timePickerKey);
-                                } else {
-                                  setActiveTimePicker(null);
-                                }
-                              }}
                             >
                               <div
                                 className={cn(
@@ -257,7 +227,6 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                                     ? "bg-primary border-primary text-primary-foreground" 
                                     : "bg-background border-border hover:bg-muted"
                                 )}
-                                onClick={() => handleHourClick(day, hour)}
                               >
                                 {isSelected && <Clock className="h-3 w-3" />}
                               </div>

@@ -29,29 +29,27 @@ interface TimePickerProps {
   hour: number // 0-23 (24-hour format)
   initialTimeRange?: TimeRange | null
   onSave: (timeRange: TimeRange) => void
-  onCancel: () => void
   onRemove?: () => void
   children: React.ReactNode
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
 }
 
 export function TimePicker({ 
   hour, 
   initialTimeRange, 
   onSave, 
-  onCancel,
   onRemove,
-  children,
-  open,
-  onOpenChange
+  children
 }: TimePickerProps) {
+  // Internal popover state
+  const [open, setOpen] = useState(false);
+  
   // Simplified debug logging
   const debugLog = (message: string, data?: any) => {
     if (process.env.NODE_ENV === 'development') {
       console.log(`[TimePicker-${hour}] ${message}`, data || '');
     }
   };
+  
   const [startMinute, setStartMinute] = useState<number>(
     initialTimeRange?.startMinute ?? 0
   )
@@ -111,18 +109,7 @@ export function TimePicker({
   }
 
   
-  // Reset to initial values when popover opens
-  useEffect(() => {
-    if (open && initialTimeRange) {
-      debugLog('Resetting time picker values', {
-        startMinute: initialTimeRange.startMinute,
-        endMinute: initialTimeRange.endMinute
-      });
-      setStartMinute(initialTimeRange.startMinute);
-      setEndMinute(initialTimeRange.endMinute);
-      setEndHour(hour + Math.floor(initialTimeRange.duration / 60));
-    }
-  }, [open, initialTimeRange, hour])
+  // This useEffect was moved up - removed duplicate
 
   // Validation: end time must be after start time
   const isValid = duration > 0
@@ -141,20 +128,40 @@ export function TimePicker({
     
     debugLog('Save button clicked', { timeRange });
     onSave(timeRange);
-    // Don't call onOpenChange here - let parent handle the close via onSave
+    setOpen(false); // Close popover after save
   }
 
   const handleCancel = () => {
     debugLog('Cancel button clicked');
-    onCancel();
-    // Don't call onOpenChange here - let parent handle the close via onCancel
+    setOpen(false); // Close popover on cancel
   }
 
+  const handleRemoveClick = () => {
+    debugLog('Remove button clicked');
+    if (onRemove) {
+      onRemove();
+      setOpen(false); // Close popover after remove
+    }
+  }
+
+
+  // Reset form when popover opens with existing data
+  useEffect(() => {
+    if (open && initialTimeRange) {
+      debugLog('Resetting time picker values', {
+        startMinute: initialTimeRange.startMinute,
+        endMinute: initialTimeRange.endMinute
+      });
+      setStartMinute(initialTimeRange.startMinute);
+      setEndMinute(initialTimeRange.endMinute);
+      setEndHour(hour + Math.floor(initialTimeRange.duration / 60));
+    }
+  }, [open, initialTimeRange, hour]);
 
   return (
     <Popover 
       open={open} 
-      onOpenChange={onOpenChange}
+      onOpenChange={setOpen}
     >
       <PopoverTrigger asChild>
         {children}
@@ -261,11 +268,7 @@ export function TimePicker({
             <div className="flex gap-2 pt-2">
               {initialTimeRange && onRemove && (
                 <Button 
-                  onClick={() => {
-                    debugLog('Remove button clicked');
-                    onRemove();
-                    // Don't call onOpenChange here - let parent handle the close via onRemove
-                  }} 
+                  onClick={handleRemoveClick}
                   variant="destructive" 
                   size="sm"
                   className="flex-1"
