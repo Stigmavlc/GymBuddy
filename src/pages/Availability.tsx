@@ -75,19 +75,42 @@ export function Availability() {
     if (!user) return;
     
     try {
-      console.log('Loading availability for user:', user.id);
+      console.log('🔍 ENHANCED DEBUG: Loading availability for user:', user.id);
+      console.log('🔍 User object:', { id: user.id, email: user.email });
       
       // Force fresh data by adding a timestamp to bypass any caching
       const timestamp = new Date().getTime();
-      console.log('Loading availability with timestamp:', timestamp);
+      console.log('⏰ Loading availability with timestamp:', timestamp);
       
-      const { data, error } = await supabase
+      // Enhanced query with better error reporting
+      const queryStart = Date.now();
+      const { data, error, status, statusText } = await supabase
         .from('availability')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
+      const queryDuration = Date.now() - queryStart;
 
-      console.log('Load availability result:', { data, error, count: data?.length || 0 });
+      console.log('📊 Enhanced load availability result:', { 
+        data, 
+        error, 
+        status,
+        statusText,
+        queryDuration: queryDuration + 'ms',
+        count: data?.length || 0,
+        rawDataSample: data?.slice(0, 2) // Show first 2 records
+      });
+
+      // If we have an error, log detailed information
+      if (error) {
+        console.error('❌ DETAILED ERROR INFO:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          userId: user.id
+        });
+      }
 
       if (error) {
         console.error('Error loading availability:', error);
@@ -166,29 +189,43 @@ export function Availability() {
   };
 
   const handleSaveAvailability = async (availability: AvailabilityData) => {
-    console.log('handleSaveAvailability called with:', availability);
+    console.log('💾 ENHANCED DEBUG: handleSaveAvailability called with:', availability);
+    console.log('💾 Availability structure analysis:');
+    Object.entries(availability).forEach(([day, slots]) => {
+      console.log(`  ${day}: ${slots.size} slots`, Array.from(slots.keys()).sort());
+    });
+    
     if (!user) {
-      console.error('No user found, cannot save availability');
+      console.error('❌ No user found, cannot save availability');
       toast.error('You must be logged in to save availability');
       return;
     }
     
-    console.log('Saving availability for user:', user.id);
+    console.log('💾 Saving availability for user:', user.id);
     setLoading(true);
     
     try {
       // Delete existing availability with better error handling
-      console.log('Deleting existing availability...');
-      const { error: deleteError, count: deletedCount } = await supabase
+      console.log('🗑️ Deleting existing availability...');
+      const deleteStart = Date.now();
+      const { error: deleteError, count: deletedCount, status: deleteStatus } = await supabase
         .from('availability')
         .delete({ count: 'exact' })
         .eq('user_id', user.id);
+      const deleteDuration = Date.now() - deleteStart;
       
       if (deleteError) {
-        console.error('Delete error:', deleteError);
+        console.error('❌ DELETE ERROR:', {
+          error: deleteError,
+          message: deleteError.message,
+          code: deleteError.code,
+          details: deleteError.details,
+          status: deleteStatus,
+          duration: deleteDuration + 'ms'
+        });
         // Continue anyway - might be first time saving
       } else {
-        console.log('Successfully deleted', deletedCount, 'existing availability slots');
+        console.log('✅ Successfully deleted', deletedCount, 'existing availability slots in', deleteDuration + 'ms');
       }
 
       // Convert availability to database format
@@ -235,21 +272,39 @@ export function Availability() {
         }
       });
 
-      console.log('Slots to save:', slots);
+      console.log('📝 Slots to save:', slots);
+      console.log('📝 Total slots to insert:', slots.length);
       
       if (slots.length > 0) {
-        const { data, error } = await supabase
+        console.log('💾 Attempting to insert', slots.length, 'availability slots...');
+        const insertStart = Date.now();
+        const { data, error, status: insertStatus } = await supabase
           .from('availability')
           .insert(slots);
+        const insertDuration = Date.now() - insertStart;
 
-        console.log('Insert result:', { data, error });
+        console.log('📊 INSERT RESULT:', { 
+          data, 
+          error, 
+          status: insertStatus,
+          duration: insertDuration + 'ms',
+          slotsAttempted: slots.length 
+        });
         
         if (error) {
-          console.error('Insert error:', error);
+          console.error('❌ INSERT ERROR:', {
+            error,
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+            status: insertStatus,
+            slotsAttempted: slots.length
+          });
           throw error;
         }
         
-        console.log('Successfully inserted slots');
+        console.log('✅ Successfully inserted', slots.length, 'slots in', insertDuration + 'ms');
       } else {
         console.log('No slots to save');
       }
