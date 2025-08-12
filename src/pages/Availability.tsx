@@ -126,14 +126,27 @@ export function Availability() {
       // Only process data if it exists and has valid entries
       if (data && Array.isArray(data) && data.length > 0) {
         console.log('Processing', data.length, 'availability slots');
-        data.forEach((slot, index) => {
+        
+        // Group slots by day and start_time to reconstruct time ranges
+        const groupedSlots = data.reduce((acc, slot) => {
+          const key = `${slot.day}-${slot.start_time}`;
+          if (!acc[key]) {
+            acc[key] = [];
+          }
+          acc[key].push(slot);
+          return acc;
+        }, {} as Record<string, any[]>);
+        
+        Object.values(groupedSlots).forEach((slots) => {
+          const firstSlot = slots[0];
+          
           // Validate slot data
-          if (!slot.day || typeof slot.start_time !== 'number' || typeof slot.end_time !== 'number') {
-            console.warn('Invalid slot data at index', index, ':', slot);
+          if (!firstSlot.day || typeof firstSlot.start_time !== 'number' || typeof firstSlot.end_time !== 'number') {
+            console.warn('Invalid slot data:', firstSlot);
             return;
           }
           
-          const dayKey = slot.day.toLowerCase();
+          const dayKey = firstSlot.day.toLowerCase();
           
           // Validate day key
           if (!availability[dayKey]) {
@@ -141,13 +154,39 @@ export function Availability() {
             return;
           }
           
-          // Convert database format to TimeSlotData format
-          // For now, convert to legacy hourly slots (null TimeRange means full hour)
-          const startHour = Math.max(0, Math.min(23, slot.start_time));
-          const endHour = Math.max(startHour + 1, Math.min(24, slot.end_time));
+          // Convert database format to TimeRange format
+          const startHour = Math.max(0, Math.min(23, firstSlot.start_time));
+          const endHour = Math.max(startHour + 1, Math.min(24, firstSlot.end_time));
           
+          // Create TimeRange object
+          const timeRange: TimeRange = {
+            startHour: startHour,
+            startMinute: 0,
+            endHour: endHour - 1, // Adjust for inclusive end hour
+            endMinute: 59,
+            duration: (endHour - startHour) * 60 // duration in minutes
+          };
+          
+          console.log('Reconstructing TimeRange for', dayKey, startHour, '->', timeRange);
+          
+          // Set time range for all hours it spans
           for (let hour = startHour; hour < endHour; hour++) {
-            availability[dayKey].set(hour, null); // null = full hour slot
+            if (hour === startHour) {
+              // First hour: store the complete time range
+              availability[dayKey].set(hour, timeRange);
+            } else {
+              // Subsequent hours: store a reference indicating this is part of a range
+              availability[dayKey].set(hour, {
+                ...timeRange,
+                startHour: hour,
+                startMinute: 0,
+                endHour: hour,
+                endMinute: 59,
+                duration: 60,
+                isPartOfRange: true,
+                originalRange: timeRange
+              } as TimeRange & { isPartOfRange: boolean; originalRange: TimeRange });
+            }
           }
         });
         
@@ -243,32 +282,38 @@ export function Availability() {
         // Convert Map to sorted array of hours
         const sortedHours = Array.from(timeSlots.keys()).sort((a, b) => a - b);
         
-        // For now, convert TimeRange slots to database format
-        // Future: we could store precise times in a separate column
+        // Group consecutive hours and create ranges
+        const ranges: { start: number; end: number }[] = [];
+        let currentRange: { start: number; end: number } | null = null;
+        
         for (const hour of sortedHours) {
           const timeRange = timeSlots.get(hour);
           
-          if (timeRange === null) {
-            // Full hour slot - store as hour to hour+1
-            slots.push({
-              user_id: user.id,
-              day,
-              start_time: hour,
-              end_time: hour + 1
-            });
-          } else if (timeRange) {
-            // Precise time range - convert to database 30-minute slot format
-            // For now, still store as full hours but could be enhanced
-            const startHour = hour;
-            const endHour = hour + Math.ceil(timeRange.duration / 60);
+          // Skip if this is part of an existing range (marked with isPartOfRange)
+          if (timeRange && (timeRange as any).isPartOfRange) {
+            continue;
+          }
+          
+          if (timeRange) {
+            // This is either a single hour slot or the start of a multi-hour range
+            const startHour = timeRange.startHour;
+            const endHour = timeRange.endHour + 1; // Database uses exclusive end time
             
-            slots.push({
-              user_id: user.id,
-              day,
-              start_time: startHour,
-              end_time: Math.min(24, endHour) // Cap at 24
+            ranges.push({
+              start: startHour,
+              end: endHour
             });
           }
+        }
+        
+        // Convert ranges to database slots
+        for (const range of ranges) {
+          slots.push({
+            user_id: user.id,
+            day,
+            start_time: range.start,
+            end_time: range.end
+          });
         }
       });
 

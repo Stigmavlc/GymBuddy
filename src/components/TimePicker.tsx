@@ -17,7 +17,9 @@ import {
 import { Clock } from 'lucide-react'
 
 export interface TimeRange {
+  startHour: number   // starting hour (0-23)
   startMinute: number // 0-59
+  endHour: number     // ending hour (0-23) 
   endMinute: number   // 0-59
   duration: number    // calculated duration in minutes
 }
@@ -26,7 +28,7 @@ export interface TimeRange {
 export type { TimeRange };
 
 interface TimePickerProps {
-  hour: number // 0-23 (24-hour format)
+  hour: number // 0-23 (24-hour format)  
   initialTimeRange?: TimeRange | null
   onSave: (timeRange: TimeRange) => void
   onRemove?: () => void
@@ -57,7 +59,7 @@ export function TimePicker({
     initialTimeRange?.endMinute ?? 0
   )
   const [endHour, setEndHour] = useState<number>(
-    hour + (initialTimeRange ? Math.floor(initialTimeRange.duration / 60) : 1)
+    initialTimeRange?.endHour ?? hour + 1
   )
 
   // Generate time options in 15-minute increments
@@ -121,7 +123,9 @@ export function TimePicker({
     }
 
     const timeRange: TimeRange = {
+      startHour: hour,
       startMinute,
+      endHour,
       endMinute,
       duration
     };
@@ -145,16 +149,25 @@ export function TimePicker({
   }
 
 
-  // Reset form when popover opens with existing data
+  // Reset form when popover opens
   useEffect(() => {
-    if (open && initialTimeRange) {
-      debugLog('Resetting time picker values', {
-        startMinute: initialTimeRange.startMinute,
-        endMinute: initialTimeRange.endMinute
-      });
-      setStartMinute(initialTimeRange.startMinute);
-      setEndMinute(initialTimeRange.endMinute);
-      setEndHour(hour + Math.floor(initialTimeRange.duration / 60));
+    if (open) {
+      if (initialTimeRange) {
+        debugLog('Resetting time picker with existing values', {
+          startMinute: initialTimeRange.startMinute,
+          endMinute: initialTimeRange.endMinute,
+          endHour: initialTimeRange.endHour
+        });
+        setStartMinute(initialTimeRange.startMinute);
+        setEndMinute(initialTimeRange.endMinute);
+        setEndHour(initialTimeRange.endHour);
+      } else {
+        debugLog('Resetting time picker with default 1-hour slot');
+        // Default to 1-hour slot starting from this hour
+        setStartMinute(0);
+        setEndMinute(0); 
+        setEndHour(Math.min(23, hour + 1));
+      }
     }
   }, [open, initialTimeRange, hour]);
 

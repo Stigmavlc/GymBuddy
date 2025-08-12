@@ -67,34 +67,36 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
       user: !!user, 
       profile: !!profile, 
       email: profile?.email,
+      userId: user?.id,
       timestamp: new Date().toISOString()
     });
     
-    // Add fallback message to prevent empty state
+    // Both user and profile are required - no fallback
     if (!user || !profile) {
-      console.log('[WelcomeSplash] Missing auth data, setting fallback message');
-      const fallbackMessage = "Welcome to GymBuddy! Your workout companion is ready to help you stay consistent. 💪";
-      setMessage(fallbackMessage);
-      setIsMessageReady(true);
-      console.log('[WelcomeSplash] Fallback message set immediately:', fallbackMessage);
+      console.log('[WelcomeSplash] Waiting for both user and profile to load...');
       return;
     }
 
     const isYoussef = profile.email !== 'ivanaguilarmari@gmail.com';
     console.log('[WelcomeSplash] User identified as:', isYoussef ? 'Youssef' : 'Ivan');
+    console.log('[WelcomeSplash] User ID:', user.id);
     
     let selectedMessage: string;
     
     if (isYoussef) {
-      // Check if it's Youssef's first visit
-      const firstVisitKey = `gymbuddy_first_visit_${user.id}`;
+      // Use a more reliable localStorage key that includes email
+      const firstVisitKey = `gymbuddy_first_visit_${user.id}_${profile.email}`;
       const hasVisitedBefore = localStorage.getItem(firstVisitKey);
+      
+      console.log('[WelcomeSplash] Checking first visit with key:', firstVisitKey);
+      console.log('[WelcomeSplash] Has visited before:', !!hasVisitedBefore);
       
       if (!hasVisitedBefore) {
         // First time - show welcome message
         console.log('[WelcomeSplash] Setting first-time message for Youssef');
         selectedMessage = YOUSSEF_FIRST_TIME_MESSAGE;
-        localStorage.setItem(firstVisitKey, 'true');
+        localStorage.setItem(firstVisitKey, new Date().toISOString());
+        console.log('[WelcomeSplash] Marked first visit in localStorage');
       } else {
         // Subsequent visits - show rotating message
         const randomIndex = Math.floor(Math.random() * YOUSSEF_MESSAGES.length);
@@ -108,11 +110,10 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
       selectedMessage = MOTIVATIONAL_QUOTES[randomIndex];
     }
     
-    // Set message and mark as ready simultaneously to prevent flickering
-    console.log('[WelcomeSplash] Setting message:', selectedMessage.substring(0, 50) + '...');
+    console.log('[WelcomeSplash] Selected message:', selectedMessage.substring(0, 100) + '...');
     setMessage(selectedMessage);
     setIsMessageReady(true);
-    console.log('[WelcomeSplash] Message initialization complete at:', new Date().toISOString());
+    console.log('[WelcomeSplash] Message initialization complete');
   }, [user, profile]);
 
   useEffect(() => {
@@ -162,6 +163,11 @@ export function WelcomeSplash({ onComplete }: WelcomeSplashProps) {
         <div className="max-w-4xl mx-auto px-8 text-center">
           <div className="animate-fade-in">
             <div className="text-white text-lg">Loading your personalized message...</div>
+            <div className="text-white text-sm mt-2 opacity-70">
+              {!user && 'Waiting for authentication...'}
+              {user && !profile && 'Loading profile data...'}
+              {user && profile && 'Preparing welcome message...'}
+            </div>
             <div className="mt-4">
               <div className="inline-block w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             </div>

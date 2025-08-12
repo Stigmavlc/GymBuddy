@@ -82,15 +82,41 @@ export const badgeService = {
   // Get all available badges from database
   async getAllBadges(): Promise<Badge[]> {
     try {
-      // Ensure badges are initialized
-      await this.initializeBadges();
+      console.log('BadgeService.getAllBadges: Starting badge fetch...');
       
+      // First, try to get current auth session
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError) {
+        console.error('BadgeService.getAllBadges: Auth error:', authError);
+      }
+      console.log('BadgeService.getAllBadges: Auth status:', session ? 'Authenticated' : 'Not authenticated');
+      
+      // Ensure badges are initialized
+      const initResult = await this.initializeBadges();
+      console.log('BadgeService.getAllBadges: Init result:', initResult);
+      
+      console.log('BadgeService.getAllBadges: Fetching badges from database...');
       const { data, error } = await supabase
         .from('badges')
         .select('*')
         .order('created_at', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        console.error('BadgeService.getAllBadges: Database error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+        
+        // If it's an RLS error, provide more context
+        if (error.code === '42501' || error.message.includes('policy')) {
+          console.error('BadgeService.getAllBadges: RLS Policy Error - User may not have permission to read badges');
+          console.error('BadgeService.getAllBadges: Ensure the badges table has proper SELECT policies for authenticated users');
+        }
+        
+        throw error;
+      }
 
       const badges = data?.map(badge => ({
         id: badge.id,
@@ -101,11 +127,19 @@ export const badgeService = {
         category: badge.category
       })) || [];
       
-      console.log('BadgeService: Loaded', badges.length, 'badges from database');
+      console.log('BadgeService.getAllBadges: Successfully loaded', badges.length, 'badges from database');
+      if (badges.length === 0) {
+        console.warn('BadgeService.getAllBadges: No badges returned - this might indicate an RLS issue');
+      }
+      
       return badges;
-    } catch (error) {
-      console.error('BadgeService: Error fetching badges:', error);
+    } catch (error: any) {
+      console.error('BadgeService.getAllBadges: Critical error fetching badges:', error);
+      console.error('BadgeService.getAllBadges: Error stack:', error?.stack);
+      
       // Return empty array instead of throwing to prevent dashboard crashes
+      // But log the issue prominently
+      console.warn('BadgeService.getAllBadges: Returning empty array due to error - badges will not be displayed');
       return [];
     }
   },
@@ -113,16 +147,36 @@ export const badgeService = {
   // Get user's unlocked badges
   async getUserBadges(userId: string): Promise<string[]> {
     try {
+      console.log('BadgeService.getUserBadges: Fetching badges for user:', userId);
+      
       const { data, error } = await supabase
         .from('user_badges')
         .select('badge_id')
         .eq('user_id', userId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('BadgeService.getUserBadges: Database error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          userId: userId
+        });
+        
+        // Check for RLS issues
+        if (error.code === '42501' || error.message.includes('policy')) {
+          console.error('BadgeService.getUserBadges: RLS Policy Error - User may not have permission to read their own badges');
+        }
+        
+        throw error;
+      }
 
-      return data?.map(ub => ub.badge_id) || [];
-    } catch (error) {
-      console.error('Error fetching user badges:', error);
+      const badgeIds = data?.map(ub => ub.badge_id) || [];
+      console.log('BadgeService.getUserBadges: User has', badgeIds.length, 'unlocked badges:', badgeIds);
+      
+      return badgeIds;
+    } catch (error: any) {
+      console.error('BadgeService.getUserBadges: Error fetching user badges:', error);
+      console.error('BadgeService.getUserBadges: Error stack:', error?.stack);
       return [];
     }
   },

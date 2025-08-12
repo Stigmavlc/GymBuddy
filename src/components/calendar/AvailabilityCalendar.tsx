@@ -62,11 +62,47 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
 
   const handleSave = (day: string, hour: number, timeRange: TimeRange) => {
     const dayKey = day.toLowerCase();
+    console.log('AvailabilityCalendar: handleSave called', { day, hour, timeRange });
+    
     setAvailability(prev => {
       const newAvailability = { ...prev };
       const daySlots = new Map(newAvailability[dayKey]);
-      daySlots.set(hour, timeRange);
+      
+      // Clear any existing slots in the time range first
+      const hoursInRange = [];
+      for (let h = timeRange.startHour; h <= timeRange.endHour; h++) {
+        hoursInRange.push(h);
+        daySlots.delete(h); // Clear existing slots
+      }
+      
+      // Set the time range for all hours it spans
+      for (let h = timeRange.startHour; h <= timeRange.endHour; h++) {
+        if (h === timeRange.startHour) {
+          // First hour: store the complete time range
+          daySlots.set(h, timeRange);
+        } else {
+          // Subsequent hours: store a reference to indicate this hour is part of a range
+          daySlots.set(h, {
+            ...timeRange,
+            startHour: h,
+            startMinute: 0,
+            endHour: h,
+            endMinute: 59,
+            duration: 60,
+            isPartOfRange: true,
+            originalRange: timeRange
+          } as TimeRange & { isPartOfRange: boolean; originalRange: TimeRange });
+        }
+      }
+      
       newAvailability[dayKey] = daySlots;
+      
+      console.log('AvailabilityCalendar: Updated slots for range', {
+        day: dayKey,
+        hoursInRange,
+        totalSlotsNow: daySlots.size
+      });
+      
       return newAvailability;
     });
     setIsDirty(true);
@@ -77,11 +113,37 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
 
   const handleRemove = (day: string, hour: number) => {
     const dayKey = day.toLowerCase();
+    console.log('AvailabilityCalendar: handleRemove called', { day, hour });
+    
     setAvailability(prev => {
       const newAvailability = { ...prev };
       const daySlots = new Map(newAvailability[dayKey]);
-      daySlots.delete(hour);
+      
+      // Get the time range for this hour
+      const timeRange = daySlots.get(hour);
+      if (timeRange) {
+        // If this is part of a multi-hour range, remove all hours in the range
+        const isPartOfRange = (timeRange as any).isPartOfRange;
+        const originalRange = isPartOfRange ? (timeRange as any).originalRange : timeRange;
+        
+        console.log('AvailabilityCalendar: Removing time range', { 
+          startHour: originalRange.startHour, 
+          endHour: originalRange.endHour,
+          isPartOfRange
+        });
+        
+        // Remove all hours in the range
+        for (let h = originalRange.startHour; h <= originalRange.endHour; h++) {
+          daySlots.delete(h);
+        }
+      } else {
+        // Fallback: just remove the specific hour
+        daySlots.delete(hour);
+      }
+      
       newAvailability[dayKey] = daySlots;
+      console.log('AvailabilityCalendar: After removal, total slots:', daySlots.size);
+      
       return newAvailability;
     });
     setIsDirty(true);
@@ -150,27 +212,43 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                   {HOURS.map(hour => {
                     const timeRange = availability[dayKey].get(hour);
                     const isSelected = timeRange !== undefined;
+                    const isPartOfRange = timeRange && (timeRange as any).isPartOfRange;
+                    const originalRange = isPartOfRange ? (timeRange as any).originalRange : timeRange;
+                    
+                    // Determine if this is start, middle, or end of a range
+                    const isRangeStart = timeRange && !isPartOfRange && originalRange?.endHour > hour;
+                    const isRangeEnd = timeRange && isPartOfRange && originalRange?.endHour === hour;
+                    const isRangeMiddle = timeRange && isPartOfRange && originalRange?.endHour > hour;
                     
                     return (
                       <TimePicker
                         key={`${dayKey}-${hour}`}
                         hour={hour}
-                        initialTimeRange={timeRange || undefined}
+                        initialTimeRange={originalRange || undefined}
                         onSave={(range) => handleSave(day, hour, range)}
                         onRemove={() => handleRemove(day, hour)}
                       >
                         <button
                           className={cn(
-                            "p-2 text-xs rounded border transition-all min-h-[2.5rem] flex items-center justify-center",
+                            "p-2 text-xs border transition-all min-h-[2.5rem] flex items-center justify-center relative",
                             isSelected 
                               ? "bg-primary border-primary text-primary-foreground font-medium" 
-                              : "bg-background border-border hover:bg-muted"
+                              : "bg-background border-border hover:bg-muted",
+                            // Add visual indicators for range position
+                            isRangeStart && "rounded-l-md rounded-r-sm border-r-0",
+                            isRangeMiddle && "rounded-none border-r-0 border-l-0", 
+                            isRangeEnd && "rounded-r-md rounded-l-sm border-l-0",
+                            !isPartOfRange && !isRangeStart && "rounded"
                           )}
                         >
                           <div className="flex items-center gap-1">
                             {isSelected && <Clock className="h-3 w-3" />}
                             <span>{formatTime(hour)}</span>
                           </div>
+                          {/* Visual indicator for time ranges */}
+                          {isRangeStart && (
+                            <div className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-background" />
+                          )}
                         </button>
                       </TimePicker>
                     );
@@ -211,24 +289,40 @@ export function AvailabilityCalendar({ onSave, initialAvailability }: Availabili
                         {HOURS.map(hour => {
                           const timeRange = availability[dayKey].get(hour);
                           const isSelected = timeRange !== undefined;
+                          const isPartOfRange = timeRange && (timeRange as any).isPartOfRange;
+                          const originalRange = isPartOfRange ? (timeRange as any).originalRange : timeRange;
+                          
+                          // Determine if this is start, middle, or end of a range
+                          const isRangeStart = timeRange && !isPartOfRange && originalRange?.endHour > hour;
+                          const isRangeEnd = timeRange && isPartOfRange && originalRange?.endHour === hour;
+                          const isRangeMiddle = timeRange && isPartOfRange && originalRange?.endHour > hour;
                           
                           return (
                             <TimePicker
                               key={`${dayKey}-${hour}`}
                               hour={hour}
-                              initialTimeRange={timeRange || undefined}
+                              initialTimeRange={originalRange || undefined}
                               onSave={(range) => handleSave(day, hour, range)}
                               onRemove={() => handleRemove(day, hour)}
                             >
                               <div
                                 className={cn(
-                                  "h-10 border rounded cursor-pointer transition-all flex items-center justify-center",
+                                  "h-10 border cursor-pointer transition-all flex items-center justify-center relative",
                                   isSelected 
                                     ? "bg-primary border-primary text-primary-foreground" 
-                                    : "bg-background border-border hover:bg-muted"
+                                    : "bg-background border-border hover:bg-muted",
+                                  // Add visual indicators for range position
+                                  isRangeStart && "rounded-l border-r-0",
+                                  isRangeMiddle && "rounded-none border-r-0 border-l-0",
+                                  isRangeEnd && "rounded-r border-l-0",
+                                  !isPartOfRange && !isRangeStart && "rounded"
                                 )}
                               >
                                 {isSelected && <Clock className="h-3 w-3" />}
+                                {/* Visual indicator for time ranges */}
+                                {isRangeStart && (
+                                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-primary rounded-full border border-background" />
+                                )}
                               </div>
                             </TimePicker>
                           );

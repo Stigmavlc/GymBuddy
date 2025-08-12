@@ -25,13 +25,20 @@ export function useAuth() {
     
     // Get initial session
     const getInitialSession = async () => {
+      console.log('[useAuth] Getting initial session...')
       try {
         const session = await authService.getSession()
         
         if (!mounted) return;
         
         if (session?.user) {
+          console.log('[useAuth] Found existing session for:', session.user.email)
+          
           const profile = await authService.getUserProfile(session.user.id)
+          console.log('[useAuth] Initial profile loading result:', {
+            hasProfile: !!profile,
+            profileEmail: profile?.email
+          })
           
           if (!mounted) return;
           
@@ -40,10 +47,13 @@ export function useAuth() {
             user: session.user,
             profile,
             loading: false,
-            error: null,
+            error: profile ? null : 'Profile data could not be loaded',
             justLoggedIn: false
           })
+          
+          console.log('[useAuth] Initial session state set')
         } else {
+          console.log('[useAuth] No existing session found')
           setState({
             user: null,
             profile: null,
@@ -53,7 +63,7 @@ export function useAuth() {
           })
         }
       } catch (error) {
-        console.error('Auth error:', error)
+        console.error('[useAuth] Initial session error:', error)
         
         if (!mounted) return;
         
@@ -61,7 +71,7 @@ export function useAuth() {
           user: null,
           profile: null,
           loading: false,
-          error: error instanceof Error ? error.message : 'An error occurred',
+          error: error instanceof Error ? error.message : 'Authentication initialization failed',
           justLoggedIn: false
         })
       }
@@ -80,17 +90,42 @@ export function useAuth() {
         
         try {
           if (session?.user) {
-            console.log('Auth listener: Getting profile for user...')
+            console.log('[useAuth] Auth listener: Getting profile for user:', session.user.email)
+            
+            // Set loading state to true for profile loading
+            setState(prev => ({ ...prev, loading: true, error: null }))
+            
             let profile = await authService.getUserProfile(session.user.id)
-            console.log('Auth listener: Got profile:', profile)
+            console.log('[useAuth] Auth listener: Profile loading result:', {
+              hasProfile: !!profile,
+              profileEmail: profile?.email,
+              profileName: profile?.name
+            })
             
             // Create profile if it doesn't exist (new user)
             if (!profile && event === 'SIGNED_IN') {
-              console.log('Creating new user profile...')
+              console.log('[useAuth] Creating new user profile...')
               profile = await authService.createUserProfile(session.user)
+              console.log('[useAuth] Created profile:', {
+                hasProfile: !!profile,
+                profileEmail: profile?.email
+              })
             }
 
-            console.log('Auth listener: Setting state with user and profile')
+            // If we still don't have a profile after trying to create one, this is an error
+            if (!profile) {
+              console.error('[useAuth] Failed to load or create profile for user:', session.user.email)
+              setState({
+                user: session.user,
+                profile: null,
+                loading: false,
+                error: 'Failed to load user profile. Please try refreshing the page.',
+                justLoggedIn: false
+              })
+              return;
+            }
+
+            console.log('[useAuth] Successfully loaded profile, updating state')
             setState({
               user: session.user,
               profile,
@@ -98,9 +133,9 @@ export function useAuth() {
               error: null,
               justLoggedIn: event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED'
             })
-            console.log('Auth listener: State updated successfully')
+            console.log('[useAuth] State updated successfully with profile')
           } else {
-            console.log('Auth listener: No user, clearing state')
+            console.log('[useAuth] Auth listener: No user, clearing state')
             setState({
               user: null,
               profile: null,
@@ -110,12 +145,12 @@ export function useAuth() {
             })
           }
         } catch (error) {
-          console.error('Auth state change error:', error)
+          console.error('[useAuth] Auth state change error:', error)
           setState({
-            user: null,
+            user: session?.user || null,
             profile: null,
             loading: false,
-            error: error instanceof Error ? error.message : 'An error occurred',
+            error: error instanceof Error ? error.message : 'Profile loading failed',
             justLoggedIn: false
           })
         }

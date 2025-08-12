@@ -470,14 +470,15 @@ export const authService = {
     }
   },
 
-  // Get user profile
-  async getUserProfile(userId: string): Promise<User | null> {
-    console.log('getUserProfile called for userId:', userId)
+  // Get user profile with retry logic
+  async getUserProfile(userId: string, retryCount = 0): Promise<User | null> {
+    const maxRetries = 2;
+    console.log(`[getUserProfile] Attempt ${retryCount + 1}/${maxRetries + 1} for userId:`, userId)
     
     try {
-      // Add timeout to prevent hanging
+      // Increase timeout to 10 seconds for more reliability
       const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Database query timeout')), 3000)
+        setTimeout(() => reject(new Error('Database query timeout (10s)')), 10000)
       );
       
       const queryPromise = supabase
@@ -488,21 +489,36 @@ export const authService = {
         
       const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
-      console.log('getUserProfile result:', { data, error })
-      console.log('Data details:', data)
+      console.log('[getUserProfile] Query result:', { 
+        hasData: !!data, 
+        hasError: !!error, 
+        errorMessage: error?.message 
+      })
 
       if (error) {
-        console.error('Database error:', error)
-        // If there's a database error, return null to trigger profile creation
+        console.error('[getUserProfile] Database error:', error)
+        
+        // Retry on recoverable errors
+        if (retryCount < maxRetries && (
+          error.message.includes('timeout') || 
+          error.message.includes('network') ||
+          error.message.includes('connection')
+        )) {
+          console.log('[getUserProfile] Retrying due to recoverable error...')
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+          return this.getUserProfile(userId, retryCount + 1);
+        }
+        
+        // Non-recoverable error - return null to trigger profile creation
         return null;
       }
       
       if (!data) {
-        console.log('No user profile found - will create one')
+        console.log('[getUserProfile] No user profile found - will create one')
         return null;
       }
       
-      console.log('Found user profile, converting to camelCase...')
+      console.log('[getUserProfile] Found user profile, converting to camelCase...')
 
       // Convert from snake_case to camelCase for TypeScript
       const profile = {
@@ -526,11 +542,29 @@ export const authService = {
         }
       }
       
-      console.log('Converted profile:', profile)
+      console.log('[getUserProfile] Successfully converted profile:', {
+        id: profile.id,
+        email: profile.email,
+        name: profile.name
+      })
       return profile
     } catch (err) {
-      console.error('getUserProfile error:', err);
-      // If there's any error, return null to trigger profile creation
+      console.error('[getUserProfile] Exception:', err);
+      
+      // Retry on timeout or network errors
+      if (retryCount < maxRetries && (
+        err instanceof Error && (
+          err.message.includes('timeout') || 
+          err.message.includes('fetch') ||
+          err.message.includes('network')
+        )
+      )) {
+        console.log('[getUserProfile] Retrying due to exception...')
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+        return this.getUserProfile(userId, retryCount + 1);
+      }
+      
+      // If there's any unrecoverable error, return null to trigger profile creation
       return null;
     }
   },

@@ -18,15 +18,25 @@ const CreateTestUser = lazy(() => import('@/pages/CreateTestUser').then(module =
 const AuthCallback = lazy(() => import('@/pages/AuthCallback'));
 
 function AppContent() {
-  const { user, loading, error, justLoggedIn, clearJustLoggedIn } = useAuth();
+  const { user, profile, loading, error, justLoggedIn, clearJustLoggedIn } = useAuth();
   const [showSplash, setShowSplash] = useState(false);
 
   // Show splash only when user just logged in (not on session restoration)
+  // Wait for BOTH user AND profile to be loaded before showing splash
   useEffect(() => {
-    if (justLoggedIn && user && !loading) {
+    console.log('[App] Auth state changed:', { 
+      justLoggedIn, 
+      hasUser: !!user, 
+      hasProfile: !!profile, 
+      loading,
+      userEmail: user?.email 
+    });
+    
+    if (justLoggedIn && user && profile && !loading) {
+      console.log('[App] Showing welcome splash for authenticated user with profile');
       setShowSplash(true);
     }
-  }, [justLoggedIn, user, loading]);
+  }, [justLoggedIn, user, profile, loading]);
 
   if (loading) {
     return (
