@@ -20,6 +20,7 @@ const AuthCallback = lazy(() => import('@/pages/AuthCallback'));
 function AppContent() {
   const { user, profile, loading, error, justLoggedIn, clearJustLoggedIn } = useAuth();
   const [showSplash, setShowSplash] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   // Show splash only when user just logged in (not on session restoration)
   // Wait for BOTH user AND profile to be loaded before showing splash
@@ -29,16 +30,26 @@ function AppContent() {
       hasUser: !!user, 
       hasProfile: !!profile, 
       loading,
+      hasInitialized,
       userEmail: user?.email 
     });
+    
+    // Mark as initialized after first auth check completes
+    if (!loading && !hasInitialized) {
+      console.log('[App] Authentication check completed, marking as initialized');
+      setHasInitialized(true);
+    }
     
     if (justLoggedIn && user && profile && !loading) {
       console.log('[App] Showing welcome splash for authenticated user with profile');
       setShowSplash(true);
     }
-  }, [justLoggedIn, user, profile, loading]);
+  }, [justLoggedIn, user, profile, loading, hasInitialized]);
 
-  if (loading) {
+  // Only show loading screen on first initialization or if we don't have a user/profile when we should
+  const shouldShowLoading = loading && (!hasInitialized || (user && !profile));
+  
+  if (shouldShowLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -47,7 +58,7 @@ function AppContent() {
             <h2 className="text-lg font-semibold text-foreground mb-2">GymBuddy</h2>
             <p className="text-muted-foreground">Loading your workout companion...</p>
             <div className="mt-2 text-xs text-muted-foreground">
-              Initializing app components
+              {!hasInitialized ? 'Checking authentication...' : 'Loading profile data...'}
             </div>
           </div>
         </div>

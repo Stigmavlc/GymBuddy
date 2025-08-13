@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { authService } from '@/services/auth'
 import type { User } from '@/types'
+import { SafeSessionStorage } from '@/lib/sessionStorage'
 
 interface AuthState {
   user: SupabaseUser | null
@@ -11,11 +12,52 @@ interface AuthState {
   justLoggedIn: boolean
 }
 
+// Session persistence keys
+const AUTH_CACHE_KEY = 'gymbuddy_auth_cache'
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
+// Cache user session and profile to avoid unnecessary loading screens
+interface AuthCache {
+  user: SupabaseUser | null
+  profile: User | null
+  timestamp: number
+}
+
+// Helper functions for session persistence
+function getCachedAuth(): AuthCache | null {
+  const cached = SafeSessionStorage.getItem<AuthCache>(AUTH_CACHE_KEY)
+  if (!cached) return null
+  
+  const isExpired = Date.now() - cached.timestamp > CACHE_DURATION
+  
+  if (isExpired) {
+    SafeSessionStorage.removeItem(AUTH_CACHE_KEY)
+    return null
+  }
+  
+  return cached
+}
+
+function setCachedAuth(user: SupabaseUser | null, profile: User | null) {
+  const cache: AuthCache = {
+    user,
+    profile,
+    timestamp: Date.now()
+  }
+  SafeSessionStorage.setItem(AUTH_CACHE_KEY, cache)
+}
+
+function clearCachedAuth() {
+  SafeSessionStorage.removeItem(AUTH_CACHE_KEY)
+}
+
 export function useAuth() {
+  // Try to initialize from cache to prevent unnecessary loading screens
+  const cachedAuth = getCachedAuth()
   const [state, setState] = useState<AuthState>({
-    user: null,
-    profile: null,
-    loading: true,
+    user: cachedAuth?.user || null,
+    profile: cachedAuth?.profile || null,
+    loading: !cachedAuth, // Only show loading if no cache
     error: null,
     justLoggedIn: false
   })
@@ -23,9 +65,56 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true;
     
-    // Get initial session
+    // Get initial session with optimized caching
     const getInitialSession = async () => {
       console.log('[useAuth] Getting initial session...')
+      
+      // If we have valid cached data, skip loading for better UX
+      const cached = getCachedAuth()
+      if (cached && cached.user && cached.profile) {
+        console.log('[useAuth] Using cached session for:', cached.user.email)
+        setState({
+          user: cached.user,
+          profile: cached.profile,
+          loading: false,
+          error: null,
+          justLoggedIn: false
+        })
+        
+        // Still verify session in background, but don't show loading
+        try {
+          const session = await authService.getSession()
+          if (mounted && session?.user && session.user.id === cached.user.id) {
+            console.log('[useAuth] Cached session verified as valid')
+          } else if (mounted) {
+            console.log('[useAuth] Cached session invalid, clearing cache')
+            clearCachedAuth()
+            // Force re-authentication
+            setState({
+              user: null,
+              profile: null,
+              loading: false,
+              error: null,
+              justLoggedIn: false
+            })
+          }
+        } catch (error) {
+          console.error('[useAuth] Background session verification failed:', error)
+          if (mounted) {
+            clearCachedAuth()
+            setState({
+              user: null,
+              profile: null,
+              loading: false,
+              error: null,
+              justLoggedIn: false
+            })
+          }
+        }
+        return
+      }
+      
+      // No cache or invalid cache - do full initialization
       try {
         const session = await authService.getSession()
         
@@ -42,6 +131,9 @@ export function useAuth() {
           
           if (!mounted) return;
           
+          // Cache the successful session
+          setCachedAuth(session.user, profile)
+          
           // Session restoration - don't trigger splash
           setState({
             user: session.user,
@@ -54,6 +146,7 @@ export function useAuth() {
           console.log('[useAuth] Initial session state set')
         } else {
           console.log('[useAuth] No existing session found')
+          clearCachedAuth()
           setState({
             user: null,
             profile: null,
@@ -67,6 +160,7 @@ export function useAuth() {
         
         if (!mounted) return;
         
+        clearCachedAuth()
         setState({
           user: null,
           profile: null,
@@ -77,8 +171,6 @@ export function useAuth() {
       }
     }
 
-    // Remove timeout since auth is working properly now
-    
     getInitialSession()
 
     // Listen for auth changes
@@ -126,6 +218,10 @@ export function useAuth() {
             }
 
             console.log('[useAuth] Successfully loaded profile, updating state')
+            
+            // Cache the successful session
+            setCachedAuth(session.user, profile)
+            
             setState({
               user: session.user,
               profile,
@@ -136,6 +232,7 @@ export function useAuth() {
             console.log('[useAuth] State updated successfully with profile')
           } else {
             console.log('[useAuth] Auth listener: No user, clearing state')
+            clearCachedAuth()
             setState({
               user: null,
               profile: null,
@@ -146,6 +243,7 @@ export function useAuth() {
           }
         } catch (error) {
           console.error('[useAuth] Auth state change error:', error)
+          clearCachedAuth()
           setState({
             user: session?.user || null,
             profile: null,
@@ -217,6 +315,7 @@ export function useAuth() {
   const signOut = async () => {
     setState(prev => ({ ...prev, loading: true, error: null }))
     try {
+      clearCachedAuth() // Clear cache on sign out
       await authService.signOut()
       // Auth state change will be handled by the listener
     } catch (error) {

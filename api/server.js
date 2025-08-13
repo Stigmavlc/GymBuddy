@@ -37,7 +37,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// Health check
+// Health check endpoints
 app.get('/', (req, res) => {
     res.json({
         status: 'GymBuddy API is running! 💪',
@@ -92,6 +92,17 @@ app.get('/', (req, res) => {
             check_user_availability: 'GET /availability/by-email/ivanaguilarmari@gmail.com',
             set_user_availability: 'POST /availability/by-email/ivanaguilarmari@gmail.com'
         }
+    });
+});
+
+// Health check endpoint for bot diagnostics
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        service: 'GymBuddy API',
+        version: '2.0.0'
     });
 });
 

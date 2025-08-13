@@ -19,8 +19,10 @@ class GymBuddyAPIService {
         this.userMapping = {
             // Map Telegram IDs to email addresses for user identification
             '1195143765': 'ivanaguilarmari@gmail.com',  // Ivan
-            // Add Youssef's Telegram ID when available
-            // 'YOUSSEF_TELEGRAM_ID': 'youssef@domain.com'
+            // TODO: Add Youssef's Telegram ID when provided by user
+            // Note: This is the primary issue causing "Delete Monday session" to fail
+            // as the bot cannot identify the user without proper mapping
+            // 'YOUSSEF_TELEGRAM_ID': 'youssef@email.com'
         };
         
         // Debug logging toggle
@@ -40,62 +42,151 @@ class GymBuddyAPIService {
     }
 
     /**
-     * Debug logging helper
+     * Debug logging helper with structured logging levels
      */
-    debugLog(message, data = null) {
+    debugLog(message, data = null, level = 'DEBUG') {
         if (this.debugMode) {
             const timestamp = new Date().toISOString();
-            console.log(`[API Service Debug ${timestamp}] ${message}`);
+            const logPrefix = `[API Service ${level} ${timestamp}]`;
+            console.log(`${logPrefix} ${message}`);
             if (data) {
-                console.log(`[API Service Debug ${timestamp}] Data:`, JSON.stringify(data, null, 2));
+                console.log(`${logPrefix} Data:`, JSON.stringify(data, null, 2));
             }
         }
     }
 
     /**
-     * Make HTTP request to API with proper error handling
+     * Error logging with stack traces
+     */
+    errorLog(message, error = null, context = {}) {
+        const timestamp = new Date().toISOString();
+        console.error(`[API Service ERROR ${timestamp}] ${message}`);
+        if (error) {
+            console.error(`[API Service ERROR ${timestamp}] Error:`, error.message);
+            if (error.stack && this.debugMode) {
+                console.error(`[API Service ERROR ${timestamp}] Stack:`, error.stack);
+            }
+        }
+        if (Object.keys(context).length > 0) {
+            console.error(`[API Service ERROR ${timestamp}] Context:`, JSON.stringify(context, null, 2));
+        }
+    }
+
+    /**
+     * API operation logging with structured data flow tracking
+     */
+    operationLog(operation, telegramId, details = {}) {
+        const timestamp = new Date().toISOString();
+        const email = this.getTelegramUserEmail(telegramId);
+        console.log(`[API OPERATION ${timestamp}] ${operation}`);
+        console.log(`[API OPERATION ${timestamp}] User: Telegram ID ${telegramId} → Email ${email || 'NOT MAPPED'}`);
+        if (Object.keys(details).length > 0) {
+            console.log(`[API OPERATION ${timestamp}] Details:`, JSON.stringify(details, null, 2));
+        }
+    }
+
+    /**
+     * Make HTTP request to API with comprehensive error handling and debugging
      */
     async makeAPIRequest(endpoint, options = {}) {
+        const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
         const url = `${this.baseURL}${endpoint}`;
         const requestOptions = {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'User-Agent': 'GymBuddy-Bot/1.0'
+                'User-Agent': 'GymBuddy-Bot/1.0',
+                'X-Request-ID': requestId,
+                // Add cache-busting headers to ensure fresh data
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'X-Timestamp': Date.now().toString()
             },
             timeout: 10000, // 10 second timeout
             ...options
         };
 
-        this.debugLog(`Making API request: ${requestOptions.method} ${url}`, {
+        const startTime = Date.now();
+        
+        // Enhanced request logging
+        this.debugLog(`🚀 API REQUEST [${requestId}]: ${requestOptions.method} ${url}`, {
             headers: requestOptions.headers,
-            body: requestOptions.body
-        });
+            body: requestOptions.body ? JSON.parse(requestOptions.body) : undefined,
+            timeout: requestOptions.timeout
+        }, 'REQUEST');
 
         try {
             const response = await fetch(url, requestOptions);
-            const responseData = await response.json();
+            const duration = Date.now() - startTime;
+            
+            // Log response headers and status
+            this.debugLog(`📥 API RESPONSE [${requestId}]: ${response.status} ${response.statusText} (${duration}ms)`, {
+                headers: Object.fromEntries(response.headers.entries()),
+                statusCode: response.status,
+                duration: duration
+            }, 'RESPONSE');
 
-            this.debugLog(`API response: ${response.status} ${response.statusText}`, responseData);
+            let responseData;
+            try {
+                responseData = await response.json();
+            } catch (parseError) {
+                this.errorLog(`Failed to parse JSON response from ${url}`, parseError, {
+                    requestId,
+                    status: response.status,
+                    contentType: response.headers.get('content-type')
+                });
+                throw new Error(`Invalid JSON response from API: ${parseError.message}`);
+            }
+
+            this.debugLog(`📄 API DATA [${requestId}]:`, responseData, 'DATA');
 
             if (!response.ok) {
-                throw new Error(`API request failed: ${response.status} ${response.statusText} - ${JSON.stringify(responseData)}`);
+                const errorMessage = `API request failed: ${response.status} ${response.statusText}`;
+                this.errorLog(errorMessage, null, {
+                    requestId,
+                    url,
+                    method: requestOptions.method,
+                    status: response.status,
+                    responseData,
+                    duration
+                });
+                
+                throw new Error(`${errorMessage} - ${JSON.stringify(responseData)}`);
             }
+
+            // Log successful operation
+            console.log(`✅ [API SUCCESS] ${requestOptions.method} ${endpoint} completed in ${duration}ms`);
 
             return {
                 success: true,
                 status: response.status,
-                data: responseData
+                data: responseData,
+                requestId,
+                duration
             };
         } catch (error) {
-            console.error(`[API Service Error] Request failed: ${error.message}`);
-            console.error(`[API Service Error] URL: ${url}`);
-            console.error(`[API Service Error] Options:`, requestOptions);
+            const duration = Date.now() - startTime;
+            
+            // Comprehensive error logging
+            this.errorLog(`❌ API request failed [${requestId}]`, error, {
+                url,
+                method: requestOptions.method,
+                endpoint,
+                duration,
+                timeout: requestOptions.timeout,
+                errorType: error.name,
+                isNetworkError: error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND',
+                isTimeoutError: error.message.includes('timeout')
+            });
             
             return {
                 success: false,
                 error: error.message,
-                url: url
+                url,
+                requestId,
+                duration,
+                errorType: error.name
             };
         }
     }
@@ -129,34 +220,109 @@ class GymBuddyAPIService {
     }
 
     /**
-     * Get user's current availability
+     * Get user's current availability with comprehensive debugging
      */
     async getUserAvailability(telegramId) {
-        console.log(`[Bot Operation] Getting availability for Telegram ID: ${telegramId}`);
+        this.operationLog('GET_AVAILABILITY_START', telegramId);
         
+        // Step 1: Validate Telegram ID mapping
         const email = this.getTelegramUserEmail(telegramId);
         if (!email) {
-            console.error(`[Bot Error] No email mapping found for Telegram ID: ${telegramId}`);
+            this.errorLog('No email mapping found for Telegram ID', null, {
+                telegramId,
+                availableMappings: Object.keys(this.userMapping)
+            });
             return [];
         }
 
-        const result = await this.makeAPIRequest(`/availability/by-email/${encodeURIComponent(email)}`);
+        this.debugLog(`📋 Availability request for: ${email}`, { telegramId, email });
+
+        // Step 2: Make API request with enhanced tracking
+        const endpoint = `/availability/by-email/${encodeURIComponent(email)}`;
+        const result = await this.makeAPIRequest(endpoint);
         
+        // Step 3: Process and validate response
         if (result.success) {
-            const slots = result.data.slots || [];
-            console.log(`[Bot Operation] Found ${slots.length} availability slots for ${result.data.user}`);
+            const responseData = result.data;
+            const slots = responseData.slots || [];
             
-            // Convert API format to bot-expected format
-            return slots.map(slot => ({
-                id: slot.id,
-                user_id: result.data.userId,
-                day: slot.day,
-                start_time: slot.startTime,
-                end_time: slot.endTime,
-                created_at: slot.created
-            }));
+            // Detailed response validation and logging
+            this.debugLog(`📊 API Response Analysis:`, {
+                hasUser: !!responseData.user,
+                hasUserId: !!responseData.userId,
+                hasSlots: !!responseData.slots,
+                slotsCount: slots.length,
+                slotsArray: Array.isArray(slots),
+                responseKeys: Object.keys(responseData)
+            });
+
+            if (slots.length > 0) {
+                console.log(`✅ [AVAILABILITY SUCCESS] Found ${slots.length} slots for ${responseData.user || email}`);
+                
+                // Log each slot for debugging
+                slots.forEach((slot, index) => {
+                    this.debugLog(`📅 Slot ${index + 1}:`, {
+                        id: slot.id,
+                        day: slot.day,
+                        startTime: slot.startTime,
+                        endTime: slot.endTime,
+                        created: slot.created,
+                        hasAllRequiredFields: !!(slot.day && slot.startTime && slot.endTime)
+                    });
+                });
+            } else {
+                console.log(`ℹ️  [AVAILABILITY INFO] No availability slots found for ${responseData.user || email}`);
+                this.debugLog('Empty availability analysis:', {
+                    responseUser: responseData.user,
+                    responseUserId: responseData.userId,
+                    slotsProperty: responseData.slots,
+                    slotsType: typeof responseData.slots,
+                    fullResponse: responseData
+                });
+            }
+            
+            // Convert API format to bot-expected format with validation
+            const convertedSlots = slots.map((slot, index) => {
+                // Validate required fields
+                if (!slot.day || !slot.startTime || !slot.endTime) {
+                    this.errorLog(`Invalid slot data at index ${index}`, null, { slot });
+                    return null;
+                }
+                
+                return {
+                    id: slot.id,
+                    user_id: responseData.userId,
+                    day: slot.day.toLowerCase(),
+                    start_time: parseInt(slot.startTime),
+                    end_time: parseInt(slot.endTime),
+                    created_at: slot.created
+                };
+            }).filter(slot => slot !== null); // Remove invalid slots
+            
+            this.operationLog('GET_AVAILABILITY_SUCCESS', telegramId, {
+                originalSlots: slots.length,
+                validSlots: convertedSlots.length,
+                requestDuration: result.duration
+            });
+            
+            return convertedSlots;
         } else {
-            console.error(`[Bot Error] Availability lookup failed: ${result.error}`);
+            // Enhanced error logging
+            this.errorLog('Availability lookup failed', null, {
+                telegramId,
+                email,
+                endpoint,
+                apiError: result.error,
+                requestId: result.requestId,
+                duration: result.duration,
+                errorType: result.errorType
+            });
+            
+            this.operationLog('GET_AVAILABILITY_FAILED', telegramId, {
+                error: result.error,
+                duration: result.duration
+            });
+            
             return [];
         }
     }
@@ -188,6 +354,127 @@ class GymBuddyAPIService {
         } else {
             console.error(`[Bot Error] Clear availability failed: ${result.error}`);
             return { success: false, error: result.error };
+        }
+    }
+
+    /**
+     * Delete specific availability slots based on criteria (day, time range)
+     * This handles requests like "Delete the Monday session booked from 6-9am"
+     */
+    async deleteSpecificAvailability(telegramId, criteria) {
+        this.operationLog('DELETE_SPECIFIC_AVAILABILITY_START', telegramId, criteria);
+        
+        const email = this.getTelegramUserEmail(telegramId);
+        if (!email) {
+            this.errorLog('No email mapping found for specific deletion', null, {
+                telegramId,
+                criteria,
+                availableMappings: Object.keys(this.userMapping)
+            });
+            return { success: false, error: 'User not found' };
+        }
+
+        try {
+            // First, get current availability to find matching slots
+            console.log('[DELETE SPECIFIC] Getting current availability...');
+            const currentAvailability = await this.getUserAvailability(telegramId);
+            
+            if (!currentAvailability || currentAvailability.length === 0) {
+                return { 
+                    success: false, 
+                    error: 'No availability slots found to delete',
+                    slotsFound: 0 
+                };
+            }
+
+            // Find matching slots based on criteria
+            const matchingSlots = currentAvailability.filter(slot => {
+                let matches = true;
+                
+                // Check day match (if specified)
+                if (criteria.day) {
+                    matches = matches && slot.day.toLowerCase() === criteria.day.toLowerCase();
+                }
+                
+                // Check time range match (if specified)
+                if (criteria.startTime !== undefined) {
+                    matches = matches && slot.start_time === parseInt(criteria.startTime);
+                }
+                
+                if (criteria.endTime !== undefined) {
+                    matches = matches && slot.end_time === parseInt(criteria.endTime);
+                }
+                
+                return matches;
+            });
+
+            console.log(`[DELETE SPECIFIC] Found ${matchingSlots.length} matching slots out of ${currentAvailability.length} total`);
+            this.debugLog('Matching slots:', matchingSlots);
+
+            if (matchingSlots.length === 0) {
+                return {
+                    success: false,
+                    error: 'No slots match the specified criteria',
+                    criteria,
+                    totalSlots: currentAvailability.length,
+                    matchingSlots: 0
+                };
+            }
+
+            // Calculate remaining slots (all slots except matching ones)
+            const remainingSlots = currentAvailability.filter(slot => {
+                return !matchingSlots.find(match => 
+                    match.day === slot.day && 
+                    match.start_time === slot.start_time && 
+                    match.end_time === slot.end_time
+                );
+            });
+
+            console.log(`[DELETE SPECIFIC] Will keep ${remainingSlots.length} slots, delete ${matchingSlots.length} slots`);
+
+            // If all slots would be deleted, use clearUserAvailability
+            if (remainingSlots.length === 0) {
+                console.log('[DELETE SPECIFIC] All slots match criteria, clearing all availability');
+                return await this.clearUserAvailability(telegramId);
+            }
+
+            // Set availability to the remaining slots (effectively deleting the matching ones)
+            const updateResult = await this.setUserAvailability(telegramId, remainingSlots.map(slot => ({
+                day: slot.day,
+                startTime: slot.start_time,
+                endTime: slot.end_time
+            })));
+
+            if (updateResult.success) {
+                this.operationLog('DELETE_SPECIFIC_AVAILABILITY_SUCCESS', telegramId, {
+                    deletedSlots: matchingSlots.length,
+                    remainingSlots: remainingSlots.length,
+                    criteria
+                });
+
+                return {
+                    success: true,
+                    deletedSlots: matchingSlots,
+                    deletedCount: matchingSlots.length,
+                    remainingCount: remainingSlots.length,
+                    message: `Successfully deleted ${matchingSlots.length} availability slot(s)`
+                };
+            } else {
+                this.errorLog('Failed to update availability after specific deletion', null, {
+                    updateResult,
+                    criteria,
+                    matchingSlots: matchingSlots.length
+                });
+                return { success: false, error: updateResult.error };
+            }
+
+        } catch (error) {
+            this.errorLog('Delete specific availability failed', error, {
+                telegramId,
+                email,
+                criteria
+            });
+            return { success: false, error: error.message };
         }
     }
 
@@ -683,6 +970,270 @@ class GymBuddyAPIService {
         });
         
         return emailToTelegram[email];
+    }
+
+    /**
+     * Real-time data sync verification and testing mechanisms
+     */
+    async verifySyncStatus(telegramId) {
+        const syncTestId = `sync_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        this.operationLog('SYNC_VERIFICATION_START', telegramId, { syncTestId });
+        
+        const email = this.getTelegramUserEmail(telegramId);
+        if (!email) {
+            return {
+                success: false,
+                error: 'No email mapping found',
+                syncTestId
+            };
+        }
+
+        const syncResults = {
+            syncTestId,
+            email,
+            timestamp: new Date().toISOString(),
+            tests: {},
+            overall: { success: false, issues: [] }
+        };
+
+        try {
+            // Test 1: API Connectivity
+            this.debugLog('🔄 Test 1: API Connectivity', { syncTestId });
+            const startTime = Date.now();
+            const healthCheck = await this.makeAPIRequest('/health');
+            syncResults.tests.apiConnectivity = {
+                success: healthCheck.success,
+                duration: Date.now() - startTime,
+                status: healthCheck.status,
+                error: healthCheck.error
+            };
+
+            // Test 2: User Lookup
+            this.debugLog('🔄 Test 2: User Lookup', { syncTestId, email });
+            const userLookupStart = Date.now();
+            const userResult = await this.getUserByTelegramId(telegramId);
+            syncResults.tests.userLookup = {
+                success: !!userResult,
+                duration: Date.now() - userLookupStart,
+                foundUser: !!userResult,
+                userName: userResult?.name,
+                userEmail: userResult?.email
+            };
+
+            // Test 3: Availability Data Access
+            this.debugLog('🔄 Test 3: Availability Data Access', { syncTestId });
+            const availabilityStart = Date.now();
+            const availabilityResult = await this.getUserAvailability(telegramId);
+            syncResults.tests.availabilityAccess = {
+                success: Array.isArray(availabilityResult),
+                duration: Date.now() - availabilityStart,
+                slotsFound: availabilityResult.length,
+                isArray: Array.isArray(availabilityResult),
+                hasData: availabilityResult.length > 0
+            };
+
+            // Test 4: Real-time Data Freshness (make two requests and compare timestamps)
+            this.debugLog('🔄 Test 4: Data Freshness Check', { syncTestId });
+            const freshnessStart = Date.now();
+            const firstFetch = await this.makeAPIRequest(`/availability/by-email/${encodeURIComponent(email)}`);
+            await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+            const secondFetch = await this.makeAPIRequest(`/availability/by-email/${encodeURIComponent(email)}`);
+            
+            syncResults.tests.dataFreshness = {
+                success: firstFetch.success && secondFetch.success,
+                duration: Date.now() - freshnessStart,
+                firstRequest: {
+                    success: firstFetch.success,
+                    slotsCount: firstFetch.data?.slots?.length || 0
+                },
+                secondRequest: {
+                    success: secondFetch.success,
+                    slotsCount: secondFetch.data?.slots?.length || 0
+                },
+                dataConsistent: JSON.stringify(firstFetch.data) === JSON.stringify(secondFetch.data)
+            };
+
+            // Analyze overall sync status
+            const allTestsPassed = Object.values(syncResults.tests).every(test => test.success);
+            const issues = [];
+            
+            if (!syncResults.tests.apiConnectivity.success) {
+                issues.push('API connectivity failed');
+            }
+            if (!syncResults.tests.userLookup.success) {
+                issues.push('User lookup failed - check Telegram ID mapping');
+            }
+            if (!syncResults.tests.availabilityAccess.success) {
+                issues.push('Availability data access failed');
+            }
+            if (!syncResults.tests.dataFreshness.success) {
+                issues.push('Data freshness check failed');
+            }
+            if (syncResults.tests.dataFreshness.success && !syncResults.tests.dataFreshness.dataConsistent) {
+                issues.push('Data inconsistency detected between requests');
+            }
+
+            syncResults.overall = {
+                success: allTestsPassed && issues.length === 0,
+                issues,
+                totalDuration: Date.now() - startTime
+            };
+
+            this.operationLog('SYNC_VERIFICATION_COMPLETE', telegramId, {
+                syncTestId,
+                success: syncResults.overall.success,
+                issueCount: issues.length,
+                totalDuration: syncResults.overall.totalDuration
+            });
+
+            return syncResults;
+
+        } catch (error) {
+            this.errorLog('Sync verification failed', error, { syncTestId, email });
+            syncResults.overall = {
+                success: false,
+                issues: [`Sync verification failed: ${error.message}`],
+                error: error.message
+            };
+            return syncResults;
+        }
+    }
+
+    /**
+     * Comprehensive data integrity check
+     */
+    async performDataIntegrityCheck(telegramId) {
+        const checkId = `integrity_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        this.operationLog('DATA_INTEGRITY_CHECK_START', telegramId, { checkId });
+
+        const email = this.getTelegramUserEmail(telegramId);
+        if (!email) {
+            return {
+                success: false,
+                error: 'No email mapping found',
+                checkId
+            };
+        }
+
+        const integrityResults = {
+            checkId,
+            email,
+            timestamp: new Date().toISOString(),
+            checks: {},
+            recommendations: []
+        };
+
+        try {
+            // Check 1: Data Structure Validation
+            const availabilityData = await this.getUserAvailability(telegramId);
+            const structureValidation = this.validateDataStructure(availabilityData);
+            integrityResults.checks.dataStructure = structureValidation;
+
+            // Check 2: Cross-reference with direct API call
+            const directApiResult = await this.makeAPIRequest(`/availability/by-email/${encodeURIComponent(email)}`);
+            integrityResults.checks.directApiComparison = {
+                apiCallSuccess: directApiResult.success,
+                dataMatches: this.compareDataStructures(availabilityData, directApiResult.data?.slots),
+                processedSlots: availabilityData.length,
+                rawSlots: directApiResult.data?.slots?.length || 0
+            };
+
+            // Generate recommendations
+            if (!structureValidation.isValid) {
+                integrityResults.recommendations.push('Data structure validation failed - check API response format');
+            }
+            if (!integrityResults.checks.directApiComparison.dataMatches) {
+                integrityResults.recommendations.push('Processed data differs from raw API response - check data transformation logic');
+            }
+            if (directApiResult.success && (!directApiResult.data?.slots || directApiResult.data.slots.length === 0)) {
+                integrityResults.recommendations.push('No availability data found - user may need to set availability');
+            }
+
+            this.operationLog('DATA_INTEGRITY_CHECK_COMPLETE', telegramId, {
+                checkId,
+                validationPassed: structureValidation.isValid,
+                dataMatches: integrityResults.checks.directApiComparison.dataMatches,
+                recommendationCount: integrityResults.recommendations.length
+            });
+
+            return integrityResults;
+
+        } catch (error) {
+            this.errorLog('Data integrity check failed', error, { checkId, email });
+            return {
+                checkId,
+                error: error.message,
+                success: false
+            };
+        }
+    }
+
+    /**
+     * Validate availability data structure
+     */
+    validateDataStructure(data) {
+        const validation = {
+            isValid: true,
+            issues: [],
+            summary: {
+                isArray: Array.isArray(data),
+                length: data ? data.length : 0,
+                validSlots: 0,
+                invalidSlots: 0
+            }
+        };
+
+        if (!Array.isArray(data)) {
+            validation.isValid = false;
+            validation.issues.push('Data is not an array');
+            return validation;
+        }
+
+        data.forEach((slot, index) => {
+            const slotIssues = [];
+            
+            if (!slot.day) slotIssues.push('Missing day');
+            if (slot.start_time === undefined || slot.start_time === null) slotIssues.push('Missing start_time');
+            if (slot.end_time === undefined || slot.end_time === null) slotIssues.push('Missing end_time');
+            if (slot.start_time >= slot.end_time) slotIssues.push('Invalid time range');
+
+            if (slotIssues.length > 0) {
+                validation.isValid = false;
+                validation.issues.push(`Slot ${index}: ${slotIssues.join(', ')}`);
+                validation.summary.invalidSlots++;
+            } else {
+                validation.summary.validSlots++;
+            }
+        });
+
+        return validation;
+    }
+
+    /**
+     * Compare processed data with raw API data
+     */
+    compareDataStructures(processedData, rawData) {
+        if (!Array.isArray(processedData) || !Array.isArray(rawData)) {
+            return false;
+        }
+
+        if (processedData.length !== rawData.length) {
+            return false;
+        }
+
+        // Compare each slot
+        for (let i = 0; i < processedData.length; i++) {
+            const processed = processedData[i];
+            const raw = rawData[i];
+
+            if (processed.day !== raw.day ||
+                processed.start_time !== parseInt(raw.startTime) ||
+                processed.end_time !== parseInt(raw.endTime)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 
